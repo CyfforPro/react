@@ -53,7 +53,7 @@ function hasValidKey(config) {
 }
 
 function defineKeyPropWarningGetter(props, displayName) {
-  const warnAboutAccessingKey = function() {
+  const warnAboutAccessingKey = function () {
     if (__DEV__) {
       if (!specialPropKeyWarningShown) {
         specialPropKeyWarningShown = true;
@@ -75,7 +75,7 @@ function defineKeyPropWarningGetter(props, displayName) {
 }
 
 function defineRefPropWarningGetter(props, displayName) {
-  const warnAboutAccessingRef = function() {
+  const warnAboutAccessingRef = function () {
     if (__DEV__) {
       if (!specialPropRefWarningShown) {
         specialPropRefWarningShown = true;
@@ -143,7 +143,9 @@ function warnIfStringRefCannotBeAutoConverted(config) {
  * indicating filename, line number, and/or other information.
  * @internal
  */
-const ReactElement = function(type, key, ref, self, source, owner, props) {
+// 创建ReactElement工厂函数，供createElement等函数调用
+// 并主动增加了一个$$typeof来标识这是一个 REACT_ELEMENT_TYPE
+const ReactElement = function (type, key, ref, self, source, owner, props) {
   const element = {
     // This tag allows us to uniquely identify this as a React Element
     $$typeof: REACT_ELEMENT_TYPE,
@@ -345,6 +347,10 @@ export function jsxDEV(type, config, maybeKey, source, self) {
  * Create and return a new ReactElement of the given type.
  * See https://reactjs.org/docs/react-api.html#createelement
  */
+// JSX会被转换为React.createElement
+// type JSX元素类型，如div App等
+// config JSX元素接收的所有"props"，包括key、ref等react内置prop
+// children JSX元素的子节点，当有多个child，会一一传入
 export function createElement(type, config, children) {
   let propName;
 
@@ -357,6 +363,7 @@ export function createElement(type, config, children) {
   let source = null;
 
   if (config != null) {
+    // 验证（只在开发环境下）并取出ref和key
     if (hasValidRef(config)) {
       ref = config.ref;
 
@@ -368,9 +375,13 @@ export function createElement(type, config, children) {
       key = '' + config.key;
     }
 
+    // 取出__self和__source
+    // __self，为了后面能正确获取this
+    // __source，没啥用，带了如filename、line number的属性
     self = config.__self === undefined ? null : config.__self;
     source = config.__source === undefined ? null : config.__source;
     // Remaining properties are added to a new props object
+    // 遍历config，取出除ref、key、__self、__source外的“真正”prop并丢到props对象中
     for (propName in config) {
       if (
         hasOwnProperty.call(config, propName) &&
@@ -383,12 +394,14 @@ export function createElement(type, config, children) {
 
   // Children can be more than one argument, and those are transferred onto
   // the newly allocated props object.
+  // 这边要先确认传入的child有几个
   const childrenLength = arguments.length - 2;
   if (childrenLength === 1) {
     props.children = children;
   } else if (childrenLength > 1) {
     const childArray = Array(childrenLength);
     for (let i = 0; i < childrenLength; i++) {
+      // 将child逐个取出放到props.children中
       childArray[i] = arguments[i + 2];
     }
     if (__DEV__) {
@@ -403,6 +416,8 @@ export function createElement(type, config, children) {
   if (type && type.defaultProps) {
     const defaultProps = type.defaultProps;
     for (propName in defaultProps) {
+      // 有defaultProps且props对应的属性的值为undefined
+      // 就使用defaultProps的那个属性值
       if (props[propName] === undefined) {
         props[propName] = defaultProps[propName];
       }
