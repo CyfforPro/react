@@ -17,6 +17,9 @@ if (__DEV__) {
 /**
  * Base class helpers for the updating state of a component.
  */
+// 首先，对外而言，react component指的是一个返回react element的函数或者类
+// 这里这个Component就是类react component的基类/父类
+// 每次写class C extends React.Component继承的就是这玩意
 function Component(props, context, updater) {
   this.props = props;
   this.context = context;
@@ -24,6 +27,9 @@ function Component(props, context, updater) {
   this.refs = emptyObject;
   // We initialize the default updater but the real one gets injected by the
   // renderer.
+  // updater是react-dom中的内容，setState和forceUpdate都是调用updater中的方法
+  // 这里可以看下下方的Component.prototype.setState方法，就是调用this.updater.enqueueSetState
+  // ReactNoopUpdateQueue基本都是用于报警告的，可不用管
   this.updater = updater || ReactNoopUpdateQueue;
 }
 
@@ -54,7 +60,7 @@ Component.prototype.isReactComponent = {};
  * @final
  * @protected
  */
-Component.prototype.setState = function(partialState, callback) {
+Component.prototype.setState = function (partialState, callback) {
   invariant(
     typeof partialState === 'object' ||
       typeof partialState === 'function' ||
@@ -79,7 +85,7 @@ Component.prototype.setState = function(partialState, callback) {
  * @final
  * @protected
  */
-Component.prototype.forceUpdate = function(callback) {
+Component.prototype.forceUpdate = function (callback) {
   this.updater.enqueueForceUpdate(this, callback, 'forceUpdate');
 };
 
@@ -101,9 +107,9 @@ if (__DEV__) {
         'https://github.com/facebook/react/issues/3236).',
     ],
   };
-  const defineDeprecationWarning = function(methodName, info) {
+  const defineDeprecationWarning = function (methodName, info) {
     Object.defineProperty(Component.prototype, methodName, {
-      get: function() {
+      get: function () {
         console.warn(
           '%s(...) is deprecated in plain JavaScript React classes. %s',
           info[0],
@@ -126,6 +132,8 @@ ComponentDummy.prototype = Component.prototype;
 /**
  * Convenience component with default shallow equality check for sCU.
  */
+// 这个就是React.PureComponent父类了
+// 基本和Component代码一致
 function PureComponent(props, context, updater) {
   this.props = props;
   this.context = context;
@@ -134,6 +142,8 @@ function PureComponent(props, context, updater) {
   this.updater = updater || ReactNoopUpdateQueue;
 }
 
+// 然后使用寄生组合继承Component
+// 在原型上的isPureReactComponent属性用于标志自身属于什么组件，Component也有一个类似属性Component.prototype.isReactComponent = {}
 const pureComponentPrototype = (PureComponent.prototype = new ComponentDummy());
 pureComponentPrototype.constructor = PureComponent;
 // Avoid an extra prototype jump for these methods.
