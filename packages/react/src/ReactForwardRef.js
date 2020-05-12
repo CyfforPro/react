@@ -23,6 +23,7 @@ import {REACT_FORWARD_REF_TYPE, REACT_MEMO_TYPE} from 'shared/ReactSymbols';
 // 2. 使用forwardRef将ref转发到函数组件内部
 // 实质上forwardRef做的事情就是类似方法1的，只不过集成到了react内部
 // 这里只是很简单的返回了一个$$typeof为REACT_FORWARD_REF_TYPE的ReactElement
+// 并让render函数多了个ref参数
 export function forwardRef<Props, ElementType: React$ElementType>(
   render: (props: Props, ref: React$Ref<ElementType>) => React$Node,
 ) {

@@ -18,6 +18,8 @@ import {
 
 import {isValidElement, cloneAndReplaceKey} from './ReactElement';
 
+// 本文件主要看看React.Children.map，因为该函数的实现基本贯穿整个文件了
+
 const SEPARATOR = '.';
 const SUBSEPARATOR = ':';
 
@@ -33,7 +35,7 @@ function escape(key: string): string {
     '=': '=0',
     ':': '=2',
   };
-  const escapedString = key.replace(escapeRegex, function(match) {
+  const escapedString = key.replace(escapeRegex, function (match) {
     return escaperLookup[match];
   });
 
@@ -84,8 +86,12 @@ function mapIntoArray(
     children = null;
   }
 
+  // 是否调用callback的标识
   let invokeCallback = false;
 
+  // 若是可以渲染的单节点，string、number、REACT_ELEMENT_TYPE、REACT_PORTAL_TYPE
+  // 就将invokeCallback = true
+  // 这里可以理解为只有“可渲染单节点”才可以调用callback
   if (children === null) {
     invokeCallback = true;
   } else {
@@ -103,6 +109,7 @@ function mapIntoArray(
     }
   }
 
+  // “可渲染单节点”调用callback
   if (invokeCallback) {
     const child = children;
     let mappedChild = callback(child);
@@ -111,13 +118,17 @@ function mapIntoArray(
     const childKey =
       nameSoFar === '' ? SEPARATOR + getElementKey(child, 0) : nameSoFar;
     if (Array.isArray(mappedChild)) {
+      // 若经过callback(child)的返回值还是数组
       let escapedChildKey = '';
       if (childKey != null) {
         escapedChildKey = escapeUserProvidedKey(childKey) + '/';
       }
-      mapIntoArray(mappedChild, array, escapedChildKey, '', c => c);
+      // 就继续递归mapIntoArray
+      mapIntoArray(mappedChild, array, escapedChildKey, '', (c) => c);
     } else if (mappedChild != null) {
       if (isValidElement(mappedChild)) {
+        // 直到mappedChild是一个有效的REACT_ELEMENT_TYPE
+        // 拷贝并替换key
         mappedChild = cloneAndReplaceKey(
           mappedChild,
           // Keep both the (mapped) and old keys if they differ, just as
@@ -131,11 +142,13 @@ function mapIntoArray(
             childKey,
         );
       }
+      // push到入参array中
       array.push(mappedChild);
     }
     return 1;
   }
 
+  // 非“可渲染单节点”的走这里的逻辑
   let child;
   let nextName;
   let subtreeCount = 0; // Count of children found in the current subtree.
@@ -146,6 +159,7 @@ function mapIntoArray(
     for (let i = 0; i < children.length; i++) {
       child = children[i];
       nextName = nextNamePrefix + getElementKey(child, i);
+      // 对于是数组的children递归调用mapIntoArray
       subtreeCount += mapIntoArray(
         child,
         array,
@@ -155,6 +169,7 @@ function mapIntoArray(
       );
     }
   } else {
+    // children不是数组但是是一个可迭代对象的
     const iteratorFn = getIteratorFn(children);
     if (typeof iteratorFn === 'function') {
       const iterableChildren: Iterable<React$Node> & {
@@ -177,6 +192,7 @@ function mapIntoArray(
       const iterator = iteratorFn.call(iterableChildren);
       let step;
       let ii = 0;
+      // 类for...of...迭代调用mapIntoArray
       while (!(step = iterator.next()).done) {
         child = step.value;
         nextName = nextNamePrefix + getElementKey(child, ii++);
@@ -189,6 +205,7 @@ function mapIntoArray(
         );
       }
     } else if (type === 'object') {
+      // 既不是“可渲染单节点”，又不是数组或者可迭代对象，仅是一个未知的object，就警告
       const childrenString = '' + (children: any);
       invariant(
         false,
@@ -220,17 +237,36 @@ type MapFunc = (child: ?React$Node) => ?ReactNodeList;
  * @param {*} context Context for mapFunction.
  * @return {object} Object containing the ordered map of results.
  */
+// 在开发中一个用来遍历props.children的函数
+// 举个调用结果的例子，便于理解内部实现
+/*
+  function Child() {
+    // 最后渲染的结果是1, 1, 2, 2
+    // 即最后都会被map扁平化处理出来
+    return React.Children.map(props.children, (child)=>[[child, child]]);
+  }
+  function Parent() {
+    return (
+      <Child>
+        <div>1</div>
+        <div>2</div>
+      </Child>
+    )
+  }
+*/
 function mapChildren(
   children: ?ReactNodeList,
   func: MapFunc,
   context: mixed,
 ): ?Array<React$Node> {
   if (children == null) {
+    // undefined和null直接返回null或者undefined
     return children;
   }
+  // 其余返回一个数组
   const result = [];
   let count = 0;
-  mapIntoArray(children, result, '', '', function(child) {
+  mapIntoArray(children, result, '', '', function (child) {
     return func.call(context, child, count++);
   });
   return result;
@@ -275,7 +311,7 @@ function forEachChildren(
 ): void {
   mapChildren(
     children,
-    function() {
+    function () {
       forEachFunc.apply(this, arguments);
       // Don't return anything.
     },
@@ -290,7 +326,7 @@ function forEachChildren(
  * See https://reactjs.org/docs/react-api.html#reactchildrentoarray
  */
 function toArray(children: ?ReactNodeList): Array<React$Node> {
-  return mapChildren(children, child => child) || [];
+  return mapChildren(children, (child) => child) || [];
 }
 
 /**
