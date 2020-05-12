@@ -135,6 +135,10 @@ function legacyCreateRootFromDOMContainer(
           );
         }
       }
+      // 神奇，这里是一次次移除container的lastChild直至没有
+      // 最终结果就是<div id="root"></div>的空div
+      // 这也表明容器内部不要有任何子节点
+      // 一是肯定会被移除，二是移除过程要进行dom操作，可能有重绘回流等影响性能
       container.removeChild(rootSibling);
     }
   }
@@ -149,6 +153,11 @@ function legacyCreateRootFromDOMContainer(
     }
   }
 
+  // return了一个new
+  // {
+  //   _internalRoot: createRootImpl(container, LegacyRoot, options)
+  // }
+  // createRootImpl最后生成的是一个FiberRoot对象，就是fiber tree的根节点
   return createLegacyRoot(
     container,
     shouldHydrate
@@ -190,6 +199,7 @@ function legacyRenderSubtreeIntoContainer(
   let fiberRoot;
   if (!root) {
     // Initial mount
+    // 没有root就创建root并挂载到container._reactRootContainer上
     root = container._reactRootContainer = legacyCreateRootFromDOMContainer(
       container,
       forceHydrate,
@@ -197,7 +207,7 @@ function legacyRenderSubtreeIntoContainer(
     fiberRoot = root._internalRoot;
     if (typeof callback === 'function') {
       const originalCallback = callback;
-      callback = function() {
+      callback = function () {
         const instance = getPublicRootInstance(fiberRoot);
         originalCallback.call(instance);
       };
@@ -210,7 +220,7 @@ function legacyRenderSubtreeIntoContainer(
     fiberRoot = root._internalRoot;
     if (typeof callback === 'function') {
       const originalCallback = callback;
-      callback = function() {
+      callback = function () {
         const instance = getPublicRootInstance(fiberRoot);
         originalCallback.call(instance);
       };

@@ -25,7 +25,9 @@ import {clearPendingUpdates as clearPendingMutableSourceUpdates} from './ReactMu
 
 function FiberRootNode(containerInfo, tag, hydrate) {
   this.tag = tag;
+  // FiberRoot中的current指向的是RootFiber
   this.current = null;
+  // 容器，render的第二个参数
   this.containerInfo = containerInfo;
   this.pendingChildren = null;
   this.pingCache = null;
@@ -62,6 +64,10 @@ export function createFiberRoot(
   hydrate: boolean,
   hydrationCallbacks: null | SuspenseHydrationCallbacks,
 ): FiberRoot {
+  // FiberRootNode内部创建了很多属性
+  // FiberRoot是RootFiber与container连接的桥梁——
+  // FiberRoot.containerInfo就是root dom
+  // 然后RootFiber.stateNode又指向FiberRoot
   const root: FiberRoot = (new FiberRootNode(containerInfo, tag, hydrate): any);
   if (enableSuspenseCallback) {
     root.hydrationCallbacks = hydrationCallbacks;
@@ -69,6 +75,13 @@ export function createFiberRoot(
 
   // Cyclic construction. This cheats the type system right now because
   // stateNode is any.
+  // 创建一个RootFiber，即fiber tree的根节点
+  // fiber tree的fiber指的是一种数据结构，而外界常言的React16的fiber指的是架构
+  // fiber tree和dom tree的结构基本是一一对应的，每个dom节点一定对应着一个fiber对象
+  // fiber对象内部使用了单链表树结构
+  // FiberRoot和RootFiber会相互引用
+  // 即FiberRoot.current = RootFiber, RootFiber.stateNode = FiberRoot
+  // 延伸之，通过fiber.stateNode可以间接的找到其对应的DOM
   const uninitializedFiber = createHostRootFiber(tag);
   root.current = uninitializedFiber;
   uninitializedFiber.stateNode = root;

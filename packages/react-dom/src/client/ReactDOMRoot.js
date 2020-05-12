@@ -69,7 +69,7 @@ function ReactDOMBlockingRoot(
   this._internalRoot = createRootImpl(container, tag, options);
 }
 
-ReactDOMRoot.prototype.render = ReactDOMBlockingRoot.prototype.render = function(
+ReactDOMRoot.prototype.render = ReactDOMBlockingRoot.prototype.render = function (
   children: ReactNodeList,
 ): void {
   const root = this._internalRoot;
@@ -99,7 +99,7 @@ ReactDOMRoot.prototype.render = ReactDOMBlockingRoot.prototype.render = function
   updateContainer(children, root, null, null);
 };
 
-ReactDOMRoot.prototype.unmount = ReactDOMBlockingRoot.prototype.unmount = function(): void {
+ReactDOMRoot.prototype.unmount = ReactDOMBlockingRoot.prototype.unmount = function (): void {
   if (__DEV__) {
     if (typeof arguments[0] === 'function') {
       console.error(
@@ -124,6 +124,9 @@ function createRootImpl(
   const hydrate = options != null && options.hydrate === true;
   const hydrationCallbacks =
     (options != null && options.hydrationOptions) || null;
+  // 当ReactFeatureFlags.js中的enableNewReconciler为false时
+  // createContainer是ReactFiberReconciler.old.js中的createContainer
+  // 这个createContainer会调用createFiberRoot生成一个FiberRoot
   const root = createContainer(container, tag, hydrate, hydrationCallbacks);
   markContainerAsRoot(root.current, container);
   const containerNodeType = container.nodeType;
