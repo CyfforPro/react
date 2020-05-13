@@ -157,7 +157,7 @@ function legacyCreateRootFromDOMContainer(
   // {
   //   _internalRoot: createRootImpl(container, LegacyRoot, options)
   // }
-  // createRootImpl最后生成的是一个FiberRoot对象，就是fiber tree的根节点
+  // createRootImpl最后生成的是一个FiberRoot对象，Fiber架构的根节点
   return createLegacyRoot(
     container,
     shouldHydrate

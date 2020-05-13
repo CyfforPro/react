@@ -115,6 +115,14 @@ function FiberNode(
   mode: TypeOfMode,
 ) {
   // Instance
+  // 主要关注如下属性
+  // stateNode 保留了每个节点的DOM信息
+  // return、child、sibling、index组成了单链表树结构
+  //   return 指向父fiber
+  //   child 指向子fiber（这里注意仅指向第一个子fiber而已）
+  //   sibling 指向下一个兄弟fiber，类比于链表中的next
+  //   index 表明当前fiber的索引
+  // alternate 表示一个更新中的fiber
   this.tag = tag;
   this.key = key;
   this.elementType = null;
@@ -202,7 +210,7 @@ function FiberNode(
 //    is faster.
 // 5) It should be easy to port this to a C struct and keep a C implementation
 //    compatible.
-const createFiber = function(
+const createFiber = function (
   tag: WorkTag,
   pendingProps: mixed,
   key: null | string,

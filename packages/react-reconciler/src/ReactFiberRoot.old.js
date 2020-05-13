@@ -66,8 +66,9 @@ export function createFiberRoot(
 ): FiberRoot {
   // FiberRootNode内部创建了很多属性
   // FiberRoot是RootFiber与container连接的桥梁——
-  // FiberRoot.containerInfo就是root dom
-  // 然后RootFiber.stateNode又指向FiberRoot
+  //  FiberRoot.containerInfo就是root dom
+  //  然后RootFiber.stateNode又指向FiberRoot
+  // 同时内部保留了很多reconciler(调度)的信息
   const root: FiberRoot = (new FiberRootNode(containerInfo, tag, hydrate): any);
   if (enableSuspenseCallback) {
     root.hydrationCallbacks = hydrationCallbacks;
@@ -81,7 +82,7 @@ export function createFiberRoot(
   // fiber对象内部使用了单链表树结构
   // FiberRoot和RootFiber会相互引用
   // 即FiberRoot.current = RootFiber, RootFiber.stateNode = FiberRoot
-  // 延伸之，通过fiber.stateNode可以间接的找到其对应的DOM
+  // 延伸之，通过fiber.stateNode可以直接或间接的找到其对应的DOM
   const uninitializedFiber = createHostRootFiber(tag);
   root.current = uninitializedFiber;
   uninitializedFiber.stateNode = root;
