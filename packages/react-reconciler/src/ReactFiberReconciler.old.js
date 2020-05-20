@@ -249,7 +249,9 @@ export function updateContainer(
   if (__DEV__) {
     onScheduleRoot(container, element);
   }
+  // 从FiberRoot中取出RootFiber
   const current = container.current;
+  // 拿到当前时间
   const currentTime = requestCurrentTimeForUpdate();
   if (__DEV__) {
     // $FlowExpectedError - jest isn't a global, and isn't recognized outside of tests
@@ -259,6 +261,7 @@ export function updateContainer(
     }
   }
   const suspenseConfig = requestCurrentSuspenseConfig();
+  // 计算过期时间expirationTime，数值越大优先级越高
   const expirationTime = computeExpirationForFiber(
     currentTime,
     current,
@@ -289,9 +292,12 @@ export function updateContainer(
     }
   }
 
+  // 创建update对象，这个对象和setState息息相关
+  // 具体内部属性参见createUpdate
   const update = createUpdate(expirationTime, suspenseConfig);
   // Caution: React DevTools currently depends on this property
   // being called "element".
+  // render其实也是一个更新，只不过没有setState，此时payload就给了个element
   update.payload = {element};
 
   callback = callback === undefined ? null : callback;
@@ -305,10 +311,13 @@ export function updateContainer(
         );
       }
     }
+    // 更新update.callback为ReactDOM.render传入的回调
     update.callback = callback;
   }
 
+  // 将update插入队列中
   enqueueUpdate(current, update);
+  // 调度相关工作
   scheduleUpdateOnFiber(current, expirationTime);
 
   return expirationTime;
@@ -437,7 +446,7 @@ export function findHostInstanceWithNoPortals(
   return hostFiber.stateNode;
 }
 
-let shouldSuspendImpl = fiber => false;
+let shouldSuspendImpl = (fiber) => false;
 
 export function shouldSuspend(fiber: Fiber): boolean {
   return shouldSuspendImpl(fiber);
@@ -516,7 +525,7 @@ if (__DEV__) {
     scheduleUpdateOnFiber(fiber, Sync);
   };
 
-  setSuspenseHandler = (newShouldSuspendImpl: Fiber => boolean) => {
+  setSuspenseHandler = (newShouldSuspendImpl: (Fiber) => boolean) => {
     shouldSuspendImpl = newShouldSuspendImpl;
   };
 }

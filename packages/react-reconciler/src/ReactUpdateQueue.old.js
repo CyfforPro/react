@@ -195,9 +195,17 @@ export function createUpdate(
     suspenseConfig,
 
     tag: UpdateState,
+    // setState的第一个参数
     payload: null,
+    // 更新完的回调，1. ReactDOM.render中的回调 2. setState的回调
     callback: null,
 
+    // 用于在队列中找到下一个节点
+    // 因为 update 其实就是一个队列中的节点，
+    // 这个属性可以用于帮助我们寻找下一个 update
+    // 对于批量更新来说，我们可能会创建多个 update
+    // 因此我们需要将这些 update 串联并存储起来
+    // 在必要的时候拿出来用于更新 state
     next: null,
   };
   if (__DEV__) {

@@ -122,7 +122,13 @@ function FiberNode(
   //   child 指向子fiber（这里注意仅指向第一个子fiber而已）
   //   sibling 指向下一个兄弟fiber，类比于链表中的next
   //   index 表明当前fiber的索引
-  // alternate 表示一个更新中的fiber
+  // alternate 合并版本的fiber
+  //   通常应用中会有两个fiber tree——old tree和workInProgress tree
+  //   old tree是已经渲染好的dom tree对应的fiber tree
+  //   workInProgress tree是正在执行更新中的fiber tree，还能实现中断恢复
+  //   两颗树之间还是相互引用的，便于共享属性
+  //   更新结束后，workInProgress tree就会变成old tree
+  //   这样的做法称为 double buffering
   this.tag = tag;
   this.key = key;
   this.elementType = null;

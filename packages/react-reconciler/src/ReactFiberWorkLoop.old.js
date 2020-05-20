@@ -308,17 +308,34 @@ export function getWorkInProgressRoot(): FiberRoot | null {
   return workInProgressRoot;
 }
 
+/**
+ * 该函数只是拿到了一个react定义的currentTime，即大概相对于MAGIC_NUMBER_OFFSET过了多久了
+ * 具体计算逻辑如下：
+ *   初始化(包括重置了currentEventTime后)、Render、Commit，return msToExpirationTime(now());
+ *   其他时候返回上次计算的currentEventTime
+ */
 export function requestCurrentTimeForUpdate() {
+  // executionContext最开始的值为0b000000
+  // RenderContext = 0b010000
+  // CommitContext = 0b100000
+  // 下面这个判断可以理解为通过executionContext控制当前是Render还是Commit阶段
+  // 若是其中之一个阶段，就直接return msToExpirationTime
+  // ReactDOM.render可以理解为初始化，并不属于Render或Commit阶段
   if ((executionContext & (RenderContext | CommitContext)) !== NoContext) {
     // We're inside React, so it's fine to read the actual time.
     return msToExpirationTime(now());
   }
   // We're not inside React, so we may be in the middle of a browser event.
+  // 既不是Render也不是Commit阶段，
+  // 并且初始化后也没有调用performConcurrentWorkOnRoot重置currentEventTime
+  // 就return 先前计算出来的currentEventTime
   if (currentEventTime !== NoWork) {
     // Use the same start time for all updates until we enter React again.
     return currentEventTime;
   }
   // This is the first update since React yielded. Compute a new start time.
+  // 既不是Render也不是Commit阶段，
+  // 初始化或调用performConcurrentWorkOnRoot重置了currentEventTime，同第一个判断的return
   currentEventTime = msToExpirationTime(now());
   return currentEventTime;
 }
@@ -327,6 +344,14 @@ export function getCurrentTime() {
   return msToExpirationTime(now());
 }
 
+/**
+ * 该函数用于计算过期时间的，该值越大，优先级越高，返回值有如下几种数字类型
+ *   Sync: 最大，优先级最高
+ *   Batched: Sync-1，优先级第二
+ *   renderExpirationTime: 要么为0，要么是之前已经用该函数计算出来的expirationTime
+ *   computeInteractiveExpiration: 比renderExpirationTime小一点
+ *   computeAsyncExpiration: 比computeInteractiveExpiration小一点
+ */
 export function computeExpirationForFiber(
   currentTime: ExpirationTime,
   fiber: Fiber,
@@ -334,23 +359,29 @@ export function computeExpirationForFiber(
 ): ExpirationTime {
   const mode = fiber.mode;
   if ((mode & BlockingMode) === NoMode) {
-    return Sync;
+    // BlockingMode=0010，那么只要mode的倒数第二位为0，就认为属于BlockingMode类别
+    return Sync; // Sync，同步，数值最大，优先级最高
   }
 
+  // 获取当前调度的优先级，调度优先级分类见Scheduler.js
   const priorityLevel = getCurrentPriorityLevel();
   if ((mode & ConcurrentMode) === NoMode) {
+    // ConcurrentMode=0100，那么只要mode的倒数第三位为0，就认为属于ConcurrentMode类别
+    // Batched = Sync - 1，优先级第二
     return priorityLevel === ImmediatePriority ? Sync : Batched;
   }
 
   if ((executionContext & RenderContext) !== NoContext) {
     // Use whatever time we're already rendering
     // TODO: Should there be a way to opt out, like with `runWithPriority`?
+    // 若是Render阶段，就返回renderExpirationTime
     return renderExpirationTime;
   }
 
   let expirationTime;
   if (suspenseConfig !== null) {
     // Compute an expiration time based on the Suspense timeout.
+    // Suspense组件的特别的expirationTime，后面再研究
     expirationTime = computeSuspenseExpiration(
       currentTime,
       suspenseConfig.timeoutMs | 0 || LOW_PRIORITY_EXPIRATION,
@@ -363,11 +394,15 @@ export function computeExpirationForFiber(
         break;
       case UserBlockingPriority:
         // TODO: Rename this to computeUserBlockingExpiration
+        // UserBlockingPriority，走交互过期时间
+        // 这个可以理解为是发生用户交互事件的优先级处理
         expirationTime = computeInteractiveExpiration(currentTime);
         break;
       case NormalPriority:
       case LowPriority: // TODO: Handle LowPriority
         // TODO: Rename this to... something better.
+        // NormaliPriority和LowPriority都是这个异步过期时间
+        // 这个值会比交互过期时间的值还小一点
         expirationTime = computeAsyncExpiration(currentTime);
         break;
       case IdlePriority:
@@ -1099,7 +1134,7 @@ function flushPendingDiscreteUpdates() {
   flushSyncCallbackQueue();
 }
 
-export function batchedUpdates<A, R>(fn: A => R, a: A): R {
+export function batchedUpdates<A, R>(fn: (A) => R, a: A): R {
   const prevExecutionContext = executionContext;
   executionContext |= BatchedContext;
   try {
@@ -1113,7 +1148,7 @@ export function batchedUpdates<A, R>(fn: A => R, a: A): R {
   }
 }
 
-export function batchedEventUpdates<A, R>(fn: A => R, a: A): R {
+export function batchedEventUpdates<A, R>(fn: (A) => R, a: A): R {
   const prevExecutionContext = executionContext;
   executionContext |= EventContext;
   try {
@@ -1163,7 +1198,7 @@ export function unbatchedUpdates<A, R>(fn: (a: A) => R, a: A): R {
   }
 }
 
-export function flushSync<A, R>(fn: A => R, a: A): R {
+export function flushSync<A, R>(fn: (A) => R, a: A): R {
   const prevExecutionContext = executionContext;
   if ((prevExecutionContext & (RenderContext | CommitContext)) !== NoContext) {
     if (__DEV__) {
@@ -3344,7 +3379,7 @@ function scheduleInteractions(root, expirationTime, interactions) {
     const pendingInteractionMap = root.pendingInteractionMap_old;
     const pendingInteractions = pendingInteractionMap.get(expirationTime);
     if (pendingInteractions != null) {
-      interactions.forEach(interaction => {
+      interactions.forEach((interaction) => {
         if (!pendingInteractions.has(interaction)) {
           // Update the pending async work count for previously unscheduled interaction.
           interaction.__count++;
@@ -3356,7 +3391,7 @@ function scheduleInteractions(root, expirationTime, interactions) {
       pendingInteractionMap.set(expirationTime, new Set(interactions));
 
       // Update the pending async work count for the current interactions.
-      interactions.forEach(interaction => {
+      interactions.forEach((interaction) => {
         interaction.__count++;
       });
     }
@@ -3393,7 +3428,7 @@ function startWorkOnPendingInteractions(root, expirationTime) {
   root.pendingInteractionMap_old.forEach(
     (scheduledInteractions, scheduledExpirationTime) => {
       if (scheduledExpirationTime >= expirationTime) {
-        scheduledInteractions.forEach(interaction =>
+        scheduledInteractions.forEach((interaction) =>
           interactions.add(interaction),
         );
       }
@@ -3456,7 +3491,7 @@ function finishPendingInteractions(root, committedExpirationTime) {
         if (scheduledExpirationTime > earliestRemainingTimeAfterCommit) {
           pendingInteractionMap.delete(scheduledExpirationTime);
 
-          scheduledInteractions.forEach(interaction => {
+          scheduledInteractions.forEach((interaction) => {
             interaction.__count--;
 
             if (subscriber !== null && interaction.__count === 0) {
@@ -3652,7 +3687,7 @@ export function act(callback: () => Thenable<mixed>): Thenable<void> {
               }
             });
           },
-          err => {
+          (err) => {
             onDone();
             reject(err);
           },
