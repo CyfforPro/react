@@ -23,6 +23,7 @@ if (
   // Check if MessageChannel is supported, too.
   typeof MessageChannel !== 'function'
 ) {
+  // 这个if中的内容是非浏览器环境的，先不看了
   // If this accidentally gets imported in a non-browser environment, e.g. JavaScriptCore,
   // fallback to a naive implementation.
   let _callback = null;
@@ -68,6 +69,7 @@ if (
   requestPaint = forceFrameRate = function() {};
 } else {
   // Capture local references to native APIs, in case a polyfill overrides them.
+  // 这个处理很细节，在这个模块被运行时，就用一些变量保存了当时的一些系统函数，防止后面有一些polyfill篡改了这些系统函数
   const performance = window.performance;
   const Date = window.Date;
   const setTimeout = window.setTimeout;
@@ -98,6 +100,8 @@ if (
     }
   }
 
+  // 宿主环境有performance，则getCurrentTime就是performance.now()的值
+  // 反之，就使用Date.now()获取当前时间与初始时间的差值
   if (
     typeof performance === 'object' &&
     typeof performance.now === 'function'
@@ -108,6 +112,7 @@ if (
     getCurrentTime = () => Date.now() - initialTime;
   }
 
+  // 这个isMessageLoopRunning boolean是用来保证每次只有一个callback执行？感觉像，待后面进一步debug
   let isMessageLoopRunning = false;
   let scheduledHostCallback = null;
   let taskTimeoutID = -1;
@@ -130,6 +135,7 @@ if (
     navigator.scheduling !== undefined &&
     navigator.scheduling.isInputPending !== undefined
   ) {
+    // 目前enableIsInputPending还一直是false，应该是一个后面的新特性，也暂时不看这里了
     const scheduling = navigator.scheduling;
     shouldYieldToHost = function() {
       const currentTime = getCurrentTime();
@@ -161,6 +167,8 @@ if (
   } else {
     // `isInputPending` is not available. Since we have no way of knowing if
     // there's pending input, always yield at the end of the frame.
+    // 若某个时间点已经超过当帧的deadline，那么scheduler就应该暂停(yield)
+    // 即当帧没有空闲时间了，要放到下一帧中进行处理
     shouldYieldToHost = function() {
       return getCurrentTime() >= deadline;
     };
@@ -179,6 +187,7 @@ if (
       return;
     }
     if (fps > 0) {
+      // 获取帧间隔时间yieldInterval
       yieldInterval = Math.floor(1000 / fps);
     } else {
       // reset the framerate
@@ -187,11 +196,13 @@ if (
   };
 
   const performWorkUntilDeadline = () => {
+    // 这个scheduledHostCallback就是调用requestHostCallback拿到的scheduler模块传入的flushwork方法
     if (scheduledHostCallback !== null) {
       const currentTime = getCurrentTime();
       // Yield after `yieldInterval` ms, regardless of where we are in the vsync
       // cycle. This means there's always time remaining at the beginning of
       // the message event.
+      // 当帧的deadline就是当前时间 + 帧间隔yieldInterval
       deadline = currentTime + yieldInterval;
       const hasTimeRemaining = true;
       try {
@@ -223,8 +234,10 @@ if (
 
   const channel = new MessageChannel();
   const port = channel.port2;
+  // 这个回调是异步的，并且是宏任务的一种
   channel.port1.onmessage = performWorkUntilDeadline;
 
+  // requestHostCallback用于提供给Scheduler.js使用，被调用时，会被传入flushWork
   requestHostCallback = function(callback) {
     scheduledHostCallback = callback;
     if (!isMessageLoopRunning) {

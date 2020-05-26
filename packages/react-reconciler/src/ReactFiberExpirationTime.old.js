@@ -145,6 +145,8 @@ export function computeInteractiveExpiration(currentTime: ExpirationTime) {
   );
 }
 
+// 从expirationTime得到React优先级
+// 这表明一件事情，expirationTime和React Priority是有对应关系的
 export function inferPriorityFromExpirationTime(
   currentTime: ExpirationTime,
   expirationTime: ExpirationTime,

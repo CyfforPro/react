@@ -54,6 +54,18 @@ const fakeCallbackNode = {};
 // Except for NoPriority, these correspond to Scheduler priorities. We use
 // ascending numbers so we can compare them like numbers. They start at 90 to
 // avoid clashing with Scheduler's priorities.
+// React优先级(参与到Reconciler过程中的)，从低到高，数值也是从低到高，这样可以直接比较，90-99
+// 注意与Scheduler系统的优先级区分开，其优先级从低到高的，数值反而从高到低，5-0
+// 但是二者又是有一一对应关系的，转换函数见getCurrentPriorityLevel和reactPriorityToSchedulerPriority
+/*
+  Schedule NoPriority(0)                ->  React NoPriority(90)
+	Schedule ImmediatePriority(1)         ->  React ImmediatePriority(99)
+	Schedule UserBlockingPriority(2)      ->  React ReactPriorityLevel(98)
+  Schedule NormalPriority(3)            ->  React NormalPriority(97)
+	Schedule LowPriority(4)               ->  React LowPriority(96)
+  Schedule IdlePriority(5)              ->  React IdlePriority(95)
+  NOTE: 除了NoPriority，其余二者之和为100
+*/
 export const ImmediatePriority: ReactPriorityLevel = 99;
 export const UserBlockingPriority: ReactPriorityLevel = 98;
 export const NormalPriority: ReactPriorityLevel = 97;
@@ -82,6 +94,7 @@ const initialTimeMs: number = Scheduler_now();
 export const now =
   initialTimeMs < 10000 ? Scheduler_now : () => Scheduler_now() - initialTimeMs;
 
+// 从Scheduler优先级转成React优先级
 export function getCurrentPriorityLevel(): ReactPriorityLevel {
   switch (Scheduler_getCurrentPriorityLevel()) {
     case Scheduler_ImmediatePriority:
@@ -99,6 +112,7 @@ export function getCurrentPriorityLevel(): ReactPriorityLevel {
   }
 }
 
+// 从React优先级转成Scheduler优先级
 function reactPriorityToSchedulerPriority(reactPriorityLevel) {
   switch (reactPriorityLevel) {
     case ImmediatePriority:
