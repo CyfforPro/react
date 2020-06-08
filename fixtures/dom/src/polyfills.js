@@ -19,6 +19,16 @@ import 'core-js/es6/map';
   }
 
   if (!window.requestAnimationFrame)
+    // requestAnimationFrame的polyfill
+    // 其主体思想为使用
+    /**
+     * currenttime lasttime timetocall
+     * 0           0        16          首次调用，在第一帧末尾cb
+     * 12          16       20          第二次调用，假设时间还在第一帧，在第二帧末尾cb
+     * 30          32       18          第三次调用，假设时间还在第二帧，在第三帧末尾cb
+     * 60          48       4           第四次调用，假设时间在第四帧，在第四帧末尾cb
+     * 100         64       0           第五次调用，假设时间已经离上一次调用超过2帧了，就立即调用
+     */
     window.requestAnimationFrame = function(callback, element) {
       var currTime = new Date().getTime();
       var timeToCall = Math.max(0, 16 - (currTime - lastTime));
