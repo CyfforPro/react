@@ -19,12 +19,16 @@ if (__DEV__) {
  * Base class helpers for the updating state of a component.
  */
 function Component(props, context, updater) {
+  // 在this中挂上props和context属性
   this.props = props;
   this.context = context;
   // If a component has string refs, we will assign a different object later.
+  // 暂时先分配一个空对象{}给this.refs，毕竟refs可以为string，这种情况是要在之后处理的
   this.refs = emptyObject;
   // We initialize the default updater but the real one gets injected by the
   // renderer.
+  // 暂时给一个defult updater，真正的updater会在renderer中inject进来
+  // updater具体是在ReactDOM中实现的，在不同的平台上有不同的行为
   this.updater = updater || ReactNoopUpdateQueue;
 }
 
@@ -55,6 +59,7 @@ Component.prototype.isReactComponent = {};
  * @final
  * @protected
  */
+// partialState，可以是对象，也可以是函数
 Component.prototype.setState = function(partialState, callback) {
   invariant(
     typeof partialState === 'object' ||
@@ -80,6 +85,7 @@ Component.prototype.setState = function(partialState, callback) {
  * @final
  * @protected
  */
+// forceUpdate，强制更新，用得很少，可在state或props没有发生变化时强制更新
 Component.prototype.forceUpdate = function(callback) {
   this.updater.enqueueForceUpdate(this, callback, 'forceUpdate');
 };
@@ -136,6 +142,7 @@ function PureComponent(props, context, updater) {
   this.updater = updater || ReactNoopUpdateQueue;
 }
 
+// 继承Component，并在pureComponentPrototype上添加isPureComponent标识
 const pureComponentPrototype = (PureComponent.prototype = new ComponentDummy());
 pureComponentPrototype.constructor = PureComponent;
 // Avoid an extra prototype jump for these methods.
