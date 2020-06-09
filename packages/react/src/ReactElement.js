@@ -108,9 +108,13 @@ function defineRefPropWarningGetter(props, displayName) {
  * @param {*} props
  * @internal
  */
+// 通过创建一种通用对象的方式，来脱离平台的限制，有点适配器的意思
 const ReactElement = function(type, key, ref, self, source, owner, props) {
   const element = {
     // This tag allows us to uniquely identify this as a React Element
+    // JSX转换的都是REACT_ELEMENT_TYPE的$$typeof
+    // 准确的说，本模块有调用该函数的，生成的都是ReactElement，所以$$typeof就是REACT_ELEMENT_TYPE
+    // 而如ReactDOM.createPortal创建的对象，其$$typeof为REACT_PORTAL_TYPE，当然该对象本身就不是ReactElement了
     $$typeof: REACT_ELEMENT_TYPE,
 
     // Built-in properties that belong on the element
@@ -168,6 +172,13 @@ const ReactElement = function(type, key, ref, self, source, owner, props) {
  * Create and return a new ReactElement of the given type.
  * See https://reactjs.org/docs/react-api.html#createelement
  */
+
+/**
+ * JSX → ReactElement
+ * @param {*} type 元素类型，常见"div"、Component等——为什么自定义组件要首字母大写
+ * @param {*} config props，包括key、ref、onClick等，以key-value形式传入
+ * @param {*} children 子元素，如有多个，是按child1, child2, ...传入的，故函数里面有将之转为数组的处理逻辑
+ */
 export function createElement(type, config, children) {
   let propName;
 
@@ -181,12 +192,16 @@ export function createElement(type, config, children) {
 
   if (config != null) {
     if (hasValidRef(config)) {
+      // 拿出config.ref赋值给ref，最后要传给ReactElement函数的
       ref = config.ref;
     }
     if (hasValidKey(config)) {
+      // 拿出config.key赋值给key，最后要传给ReactElement函数的
+      // 这里简单的转为string了
       key = '' + config.key;
     }
 
+    // 同ref、key处理
     self = config.__self === undefined ? null : config.__self;
     source = config.__source === undefined ? null : config.__source;
     // Remaining properties are added to a new props object
@@ -195,6 +210,8 @@ export function createElement(type, config, children) {
         hasOwnProperty.call(config, propName) &&
         !RESERVED_PROPS.hasOwnProperty(propName)
       ) {
+        // 将非内置属性放入props中——为什么在props中拿不到key、ref
+        // 内置属性有key、ref、__self、__source
         props[propName] = config[propName];
       }
     }
@@ -202,6 +219,9 @@ export function createElement(type, config, children) {
 
   // Children can be more than one argument, and those are transferred onto
   // the newly allocated props object.
+  // 处理children
+  // 只有一个，即只有第三个参数，则props.children = children
+  // 多个child，从第三个参数开始的都是child，一个个“push”到childArray中，然后props.children = childArray
   const childrenLength = arguments.length - 2;
   if (childrenLength === 1) {
     props.children = children;
@@ -219,10 +239,12 @@ export function createElement(type, config, children) {
   }
 
   // Resolve default props
+  // 类组件的defaultProps，实际就是类的一个“静态属性”
   if (type && type.defaultProps) {
     const defaultProps = type.defaultProps;
     for (propName in defaultProps) {
       if (props[propName] === undefined) {
+        // 只有当props没有那个属性时，才使用defaultProps的
         props[propName] = defaultProps[propName];
       }
     }
