@@ -16,5 +16,6 @@ export function createRef(): RefObject {
   if (__DEV__) {
     Object.seal(refObject);
   }
+  // createRef就只是返回了一个{ current: null }而已
   return refObject;
 }

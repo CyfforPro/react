@@ -46,6 +46,8 @@ export default function forwardRef<Props, ElementType: React$ElementType>(
     }
   }
 
+  // forwardRef，返回一个对象，注意只是该返回的对象的$$typeof是REACT_FORWARD_REF_TYPE
+  // 而不是render的返回结果的，render的返回结果还是通过React.createElement创建的，其$$typeof还是REACT_ELEMENT_TYPE
   return {
     $$typeof: REACT_FORWARD_REF_TYPE,
     render,
