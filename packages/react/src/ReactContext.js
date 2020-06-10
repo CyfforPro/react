@@ -33,6 +33,8 @@ export function createContext<T>(
   }
 
   const context: ReactContext<T> = {
+    // createContext的返回值的$$typeof是REACT_CONTEXT_TYPE
+    // 即Consumer组件在经过React.createElement后的.type.$$typeof === REACT_CONTEXT_TYPE
     $$typeof: REACT_CONTEXT_TYPE,
     _calculateChangedBits: calculateChangedBits,
     // As a workaround to support multiple concurrent renderers, we categorize
@@ -40,6 +42,8 @@ export function createContext<T>(
     // there to be two concurrent renderers at most: React Native (primary) and
     // Fabric (secondary); React DOM (primary) and React ART (secondary).
     // Secondary renderers store their context values on separate fields.
+    // 按上面的注释，这两个currentValue是为了解决同时多个渲染器运行的context的隔离而存在的
+    // 对于ReactDOM而言，其拿的是_currentValue
     _currentValue: defaultValue,
     _currentValue2: defaultValue,
     // Used to track how many concurrent renderers this context currently
@@ -50,6 +54,8 @@ export function createContext<T>(
     Consumer: (null: any),
   };
 
+  // Provider在经过React.createElement后的.type.$$typeof === REACT_PROVIDER_TYPE
+  // 并且其_context指向context
   context.Provider = {
     $$typeof: REACT_PROVIDER_TYPE,
     _context: context,
@@ -126,6 +132,7 @@ export function createContext<T>(
     // $FlowFixMe: Flow complains about missing properties because it doesn't understand defineProperty
     context.Consumer = Consumer;
   } else {
+    // context.Consumer指向context
     context.Consumer = context;
   }
 
