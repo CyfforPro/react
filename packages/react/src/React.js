@@ -78,6 +78,7 @@ const React = {
 
   Fragment: REACT_FRAGMENT_TYPE,
   StrictMode: REACT_STRICT_MODE_TYPE,
+  // Suspense也只是一个Symbol
   Suspense: REACT_SUSPENSE_TYPE,
 
   createElement: __DEV__ ? createElementWithValidation : createElement,
@@ -87,6 +88,7 @@ const React = {
 
   version: ReactVersion,
 
+  // unstable_ConcurrentMode竟然只是一个Symbol
   unstable_ConcurrentMode: REACT_CONCURRENT_MODE_TYPE,
   unstable_Profiler: REACT_PROFILER_TYPE,
 
