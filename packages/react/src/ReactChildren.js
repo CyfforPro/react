@@ -46,12 +46,18 @@ function escape(key) {
 let didWarnAboutMaps = false;
 
 const userProvidedKeyEscapeRegex = /\/+/g;
+// 可以将text中的/变成//，//变成///，以此类推，不知道用处。。。
 function escapeUserProvidedKey(text) {
   return ('' + text).replace(userProvidedKeyEscapeRegex, '$&/');
 }
 
 const POOL_SIZE = 10;
+// 对象重用池——维护一个大小固定的对象重用池，每次从这个池子里取一个对象去赋值，用完了就将对象上的属性置空然后丢回池子。
+// 维护这个池子的用意就是提高性能，毕竟频繁创建销毁一个有很多属性的对象会消耗性能。
+// 同时这个池子里的对象是用来存储遍历上下文的
 const traverseContextPool = [];
+
+// 取池子里的对象
 function getPooledTraverseContext(
   mapResult,
   keyPrefix,
@@ -59,6 +65,7 @@ function getPooledTraverseContext(
   mapContext,
 ) {
   if (traverseContextPool.length) {
+    // 若缓存池有东西，就pop一个出去，并附上真正的属性值
     const traverseContext = traverseContextPool.pop();
     traverseContext.result = mapResult;
     traverseContext.keyPrefix = keyPrefix;
@@ -67,6 +74,7 @@ function getPooledTraverseContext(
     traverseContext.count = 0;
     return traverseContext;
   } else {
+    // 没有length，就返回一个字面量
     return {
       result: mapResult,
       keyPrefix: keyPrefix,
@@ -77,6 +85,7 @@ function getPooledTraverseContext(
   }
 }
 
+// 置空对象后，重新丢回池子
 function releaseTraverseContext(traverseContext) {
   traverseContext.result = null;
   traverseContext.keyPrefix = null;
@@ -111,6 +120,8 @@ function traverseAllChildrenImpl(
 
   let invokeCallback = false;
 
+  // 假如children为null或只是一个，invokeCallback = true，
+  // 表示需要调用callback了
   if (children === null) {
     invokeCallback = true;
   } else {
@@ -129,6 +140,7 @@ function traverseAllChildrenImpl(
   }
 
   if (invokeCallback) {
+    // 可以调用cb了，对于map来说，调用的是mapSingleChildIntoContext
     callback(
       traverseContext,
       children,
@@ -145,6 +157,7 @@ function traverseAllChildrenImpl(
   const nextNamePrefix =
     nameSoFar === '' ? SEPARATOR : nameSoFar + SUBSEPARATOR;
 
+  // 对于children数组的，递归traverseAllChildrenImpl
   if (Array.isArray(children)) {
     for (let i = 0; i < children.length; i++) {
       child = children[i];
@@ -172,6 +185,7 @@ function traverseAllChildrenImpl(
         }
       }
 
+      // 对于可递归的children，同样需要递归traverseAllChildrenImpl
       const iterator = iteratorFn.call(children);
       let step;
       let ii = 0;
@@ -288,11 +302,15 @@ function forEachChildren(children, forEachFunc, forEachContext) {
 function mapSingleChildIntoContext(bookKeeping, child, childKey) {
   const {result, keyPrefix, func, context} = bookKeeping;
 
+  // 这个func就是React.map(children, cb)中的cb
   let mappedChild = func.call(context, child, bookKeeping.count++);
   if (Array.isArray(mappedChild)) {
+    // 若经过cb(child)后还是数组，就继续调用mapIntoWithKeyPrefixInternal
+    // 同时cb换成了c => c
     mapIntoWithKeyPrefixInternal(mappedChild, result, childKey, c => c);
   } else if (mappedChild != null) {
     if (isValidElement(mappedChild)) {
+      // cb(child)后是一个validElement，就复制一份出来并替换其key
       mappedChild = cloneAndReplaceKey(
         mappedChild,
         // Keep both the (mapped) and old keys if they differ, just as
@@ -304,6 +322,7 @@ function mapSingleChildIntoContext(bookKeeping, child, childKey) {
           childKey,
       );
     }
+    // 最后push到result中
     result.push(mappedChild);
   }
 }
@@ -311,6 +330,7 @@ function mapSingleChildIntoContext(bookKeeping, child, childKey) {
 function mapIntoWithKeyPrefixInternal(children, array, prefix, func, context) {
   let escapedPrefix = '';
   if (prefix != null) {
+    // 对key值进行处理的
     escapedPrefix = escapeUserProvidedKey(prefix) + '/';
   }
   const traverseContext = getPooledTraverseContext(
