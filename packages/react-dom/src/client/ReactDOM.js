@@ -341,6 +341,7 @@ ReactWork.prototype.then = function(onCommit: () => mixed): void {
   callbacks.push(onCommit);
 };
 ReactWork.prototype._onCommit = function(): void {
+  // 若这个work已经didCommit，return
   if (this._didCommit) {
     return;
   }
@@ -350,6 +351,7 @@ ReactWork.prototype._onCommit = function(): void {
     return;
   }
   // TODO: Error handling.
+  // 这个work还没有didComit，且this.callbacks有内容，逐个执行之
   for (let i = 0; i < callbacks.length; i++) {
     const callback = callbacks[i];
     invariant(
@@ -368,6 +370,7 @@ function ReactRoot(
   hydrate: boolean,
 ) {
   const root = createContainer(container, isConcurrent, hydrate);
+  // _internalRoot就是createContainer创建的FiberRoot
   this._internalRoot = root;
 }
 ReactRoot.prototype.render = function(
@@ -383,6 +386,8 @@ ReactRoot.prototype.render = function(
   if (callback !== null) {
     work.then(callback);
   }
+  // 关键
+  // 注意root是FiberRoot，而不是ReactRoot
   updateContainer(children, root, null, work._onCommit);
   return work;
 };
@@ -463,20 +468,29 @@ function isValidContainer(node) {
   );
 }
 
+/**
+ * 获取container的第一个子元素
+ * @param {*} container
+ */
 function getReactRootElementInContainer(container: any) {
   if (!container) {
     return null;
   }
 
   if (container.nodeType === DOCUMENT_NODE) {
+    // 若传入的是document，就返回其documentElement，也就是html
+    // 为啥要这样处理呢？——当container为document时，document.firstChild是文档类型声明啊（如<!DOCTYPE html>）
     return container.documentElement;
   } else {
+    // 否则返回container第一个子元素
     return container.firstChild;
   }
 }
 
 function shouldHydrateDueToLegacyHeuristic(container) {
   const rootElement = getReactRootElementInContainer(container);
+  // 有rootElement，还得上面挂了data-reactroot属性，才返回true
+  // 老版本的ssr的server端返回的html中的container的第一个子元素会带上data-reactroot来表明需要hydrate
   return !!(
     rootElement &&
     rootElement.nodeType === ELEMENT_NODE &&
@@ -496,6 +510,9 @@ function legacyCreateRootFromDOMContainer(
   container: DOMContainer,
   forceHydrate: boolean,
 ): Root {
+  // 当forceHydrate为falsy时，竟然还会再做一次判断——
+  // shouldHydrateDueToLegacyHeuristic大概做的主体工作就是判断container的子节点是否已有data-reactroot属性
+  // 若有，表明其为ssr内容，就应该hydrate
   const shouldHydrate =
     forceHydrate || shouldHydrateDueToLegacyHeuristic(container);
   // First clear any existing content.
@@ -518,6 +535,7 @@ function legacyCreateRootFromDOMContainer(
           );
         }
       }
+      // 若不需要hydrate，先从下至上的移除container的所有子节点，
       container.removeChild(rootSibling);
     }
   }
@@ -553,11 +571,13 @@ function legacyRenderSubtreeIntoContainer(
   let root: Root = (container._reactRootContainer: any);
   if (!root) {
     // Initial mount
+    // 创建ReactRoot
     root = container._reactRootContainer = legacyCreateRootFromDOMContainer(
       container,
       forceHydrate,
     );
     if (typeof callback === 'function') {
+      // 很简单，只是调用ReactDOM.render(element, container, callback)中的callback而已
       const originalCallback = callback;
       callback = function() {
         const instance = getPublicRootInstance(root._internalRoot);
@@ -565,6 +585,7 @@ function legacyRenderSubtreeIntoContainer(
       };
     }
     // Initial mount should not be batched.
+    // 首次无需批量更新，参数是一个cb，unbatchedUpdates会先设置一个变量表示调用root.render时不用批量而已
     unbatchedUpdates(() => {
       if (parentComponent != null) {
         root.legacy_renderSubtreeIntoContainer(
@@ -573,6 +594,7 @@ function legacyRenderSubtreeIntoContainer(
           callback,
         );
       } else {
+        // root就是ReactRoot，root.render就是ReactRoot.prototype.render
         root.render(children, callback);
       }
     });
@@ -661,6 +683,8 @@ const ReactDOM: Object = {
       );
     }
     // TODO: throw or warn if we couldn't hydrate?
+    // 和render调用相同的方法的，只不过参数三变成了true
+    // 在ssr中的client代码中需要用到，表示需要整合页面已有元素，毕竟在client端的ReactDOM.hydrate运行时，浏览器中已有服务端返回的部分html了，这样可以复用
     return legacyRenderSubtreeIntoContainer(
       null,
       element,
@@ -772,9 +796,9 @@ const ReactDOM: Object = {
             'was rendered by React and is not a top-level container. %s',
           isContainerReactRoot
             ? 'You may have accidentally passed in a React root node instead ' +
-              'of its container.'
+                'of its container.'
             : 'Instead, have the parent component update its state and ' +
-              'rerender in order to remove this component.',
+                'rerender in order to remove this component.',
         );
       }
 

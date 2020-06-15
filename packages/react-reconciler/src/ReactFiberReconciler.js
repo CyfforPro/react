@@ -136,6 +136,7 @@ function scheduleRootUpdate(
     }
   }
 
+  // 创建更新等操作
   const update = createUpdate(expirationTime);
   // Caution: React DevTools currently depends on this property
   // being called "element".
@@ -153,7 +154,9 @@ function scheduleRootUpdate(
   }
 
   flushPassiveEffects();
+  // 涉及多个update
   enqueueUpdate(current, update);
+  // 开始任务调度——按优先级update
   scheduleWork(current, expirationTime);
 
   return expirationTime;
@@ -181,6 +184,7 @@ export function updateContainerAtExpirationTime(
     }
   }
 
+  // 大部分情况下context都没有，先不管
   const context = getContextForSubtree(parentComponent);
   if (container.context === null) {
     container.context = context;
@@ -280,6 +284,13 @@ export function createContainer(
   return createFiberRoot(containerInfo, isConcurrent, hydrate);
 }
 
+/**
+ *
+ * @param {ReactNode} element
+ * @param {FiberRoot} container
+ * @param {*} parentComponent
+ * @param {*} callback
+ */
 export function updateContainer(
   element: ReactNodeList,
   container: OpaqueRoot,
