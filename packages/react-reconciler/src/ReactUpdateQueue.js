@@ -106,28 +106,46 @@ import invariant from 'shared/invariant';
 import warningWithoutStack from 'shared/warningWithoutStack';
 
 export type Update<State> = {
+  // 更新过期时间
   expirationTime: ExpirationTime,
 
+  // export const UpdateState = 0;
+  // export const ReplaceState = 1;
+  // export const ForceUpdate = 2;
+  // export const CaptureUpdate = 3;
+  // 指定更新的类型，值为以上几种，captureupdate是用来错误捕获时用的
   tag: 0 | 1 | 2 | 3,
+  // 更新的内容，如首次render可能是ReactElements，setState更新可能是新的部分state（setState第一个参数）等
   payload: any,
+  // 对应的回调，setState，render都有
   callback: (() => mixed) | null,
 
+  // 指向下一个更新
   next: Update<State> | null,
+  // 指向下一个side effect
   nextEffect: Update<State> | null,
 };
 
 export type UpdateQueue<State> = {
+  // 每次操作完更新之后的state
   baseState: State,
 
+  // 队列中的第一个Update
   firstUpdate: Update<State> | null,
+  // 队列中最后一个Update
   lastUpdate: Update<State> | null,
 
+  // 第一个错误捕获的Update
   firstCapturedUpdate: Update<State> | null,
+  // 最后一个错误捕获的Update
   lastCapturedUpdate: Update<State> | null,
 
+  // 第一个side effect
   firstEffect: Update<State> | null,
+  // 最后一个side effect
   lastEffect: Update<State> | null,
 
+  // 第一个和最后一个错误捕获产生的side effect
   firstCapturedEffect: Update<State> | null,
   lastCapturedEffect: Update<State> | null,
 };
@@ -190,6 +208,10 @@ function cloneUpdateQueue<State>(
   return queue;
 }
 
+// Update——
+// 1. 记录组件状态变更
+// 2. 存放于UpdateQueue中
+// 3. 多个Update可同时存在
 export function createUpdate(expirationTime: ExpirationTime): Update<*> {
   return {
     expirationTime: expirationTime,
@@ -203,6 +225,14 @@ export function createUpdate(expirationTime: ExpirationTime): Update<*> {
   };
 }
 
+/**
+ * update入队列queue
+ *   queue.lastUpdate === null ?
+ *   Y: 表示队列里还啥都没，queue.firstUpdate = queue.lastUpdate = update;
+ *   N: 表示队列有东西，queue.lastUpdate.next = update(稍后这个queue.lastUpdate会变成第二个呀) 并 queue.lastUpdate = update;
+ * @param {*} queue
+ * @param {*} update
+ */
 function appendUpdateToQueue<State>(
   queue: UpdateQueue<State>,
   update: Update<State>,
@@ -217,13 +247,27 @@ function appendUpdateToQueue<State>(
   }
 }
 
+/**
+ * 经过enqueueUpdate处理后
+ *  若fiber.alternate不存在，update入队fiber.updateQueue
+ *  若fiber.alternate存在，
+ *    若fiber.updateQueue或fiber.alternate.updateQueue为null，就将有的那一个queue clone给没有的queue，两个都没有就createUpdateQueue
+ *    只要fiber.updateQueue/fiber.alternate.updateQueue存在，update就会入fiber.updateQueue/fiber.alternate.updateQueue
+ * @param {*} fiber
+ * @param {*} update
+ */
 export function enqueueUpdate<State>(fiber: Fiber, update: Update<State>) {
   // Update queues are created lazily.
-  const alternate = fiber.alternate;
-  let queue1;
-  let queue2;
+  const alternate = fiber.alternate; // 是否有workinprogress的fiber
+  let queue1; // current fiber的
+  let queue2; // alternate fiber的
+
+  /**
+   * 下面这个if是用来处理queue的
+   */
   if (alternate === null) {
     // There's only one fiber.
+    // 只有一个fiber，queue1 = fiber.updateQueue | = fiber.updateQueue = createUpdateQueue，queue2 = null
     queue1 = fiber.updateQueue;
     queue2 = null;
     if (queue1 === null) {
@@ -231,44 +275,58 @@ export function enqueueUpdate<State>(fiber: Fiber, update: Update<State>) {
     }
   } else {
     // There are two owners.
+    // 有workinprogress的fiber
     queue1 = fiber.updateQueue;
     queue2 = alternate.updateQueue;
     if (queue1 === null) {
       if (queue2 === null) {
         // Neither fiber has an update queue. Create new ones.
+        // queue1和queue2都为null，createUpdateQueue，并且赋值给queue1/fiber.update和queue2/alternate.updateQueue
         queue1 = fiber.updateQueue = createUpdateQueue(fiber.memoizedState);
         queue2 = alternate.updateQueue = createUpdateQueue(
           alternate.memoizedState,
         );
       } else {
         // Only one fiber has an update queue. Clone to create a new one.
+        // queue1为null，queue2不为null，clone queue2给queue1/fiber.update
         queue1 = fiber.updateQueue = cloneUpdateQueue(queue2);
       }
     } else {
       if (queue2 === null) {
         // Only one fiber has an update queue. Clone to create a new one.
+        // queue1不为null，queue2为null，clone queue2给queue1/fiber.update
         queue2 = alternate.updateQueue = cloneUpdateQueue(queue1);
       } else {
         // Both owners have an update queue.
       }
     }
   }
+
+  /**
+   * 下面这个if是用来处理update入queue的
+   */
   if (queue2 === null || queue1 === queue2) {
     // There's only a single queue.
+    // 只有queue1或者queue1 === queue2，update入queue1（对于queue1 === queue2的情况，update也相当于入queue2了）
     appendUpdateToQueue(queue1, update);
   } else {
     // There are two queues. We need to append the update to both queues,
     // while accounting for the persistent structure of the list — we don't
     // want the same update to be added multiple times.
+    // 有两个queue
     if (queue1.lastUpdate === null || queue2.lastUpdate === null) {
       // One of the queues is not empty. We must add the update to both queues.
+      // 且两个queue有一个没有内容，将update分别入queue1，queue2
       appendUpdateToQueue(queue1, update);
       appendUpdateToQueue(queue2, update);
     } else {
       // Both queues are non-empty. The last update is the same in both lists,
       // because of structural sharing. So, only append to one of the lists.
+      // 且两个queue都非空，两个queue的lastUpdate是一样的（看上一个大的if，这两个queue就是一样的），update先入queue1
       appendUpdateToQueue(queue1, update);
       // But we still need to update the `lastUpdate` pointer of queue2.
+      // 两个queue相同，那么经过appendUpdateToQueue(queue1, update)后，除了queue2.lastUpdate指向还有问题外
+      // 其余的指向（什么next、firstUpdate）都是对的，那么只需要再单独修改这个就好了
       queue2.lastUpdate = update;
     }
   }
