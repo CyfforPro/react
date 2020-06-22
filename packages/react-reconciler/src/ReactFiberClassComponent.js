@@ -89,7 +89,9 @@ if (__DEV__) {
     if (callback === null || typeof callback === 'function') {
       return;
     }
-    const key = `${callerName}_${(callback: any)}`;
+    // const key = `${callerName}_${(callback: any)}`;
+    // 稍微改写下这行代码，避免ide关键字着色异常，原代码见上方
+    const key = `${callerName}_${callback}`;
     if (!didWarnOnInvalidCallback.has(key)) {
       didWarnOnInvalidCallback.add(key);
       warningWithoutStack(
@@ -178,9 +180,14 @@ export function applyDerivedStateFromProps(
   }
 }
 
+// 这个Updater就是创建React Class Component时传入的updater对象
+// 用于给节点的fiber创建更新（包括setState、forceUpdate、replaceState），而ReactDOM.render是为FiberRoot创建更新
 const classComponentUpdater = {
   isMounted,
+  // 下面几个enqueuexxxState和render中的updateContainer很像
+  // 调用setState就是调用Component.prototype.setState，里面再调用了this.Updater.enqueueSetState(this, partialState, cb)（见ReactBaseClasses.js）
   enqueueSetState(inst, payload, callback) {
+    // 通过getInstance可以拿到react element的fiber对象
     const fiber = getInstance(inst);
     const currentTime = requestCurrentTime();
     const expirationTime = computeExpirationForFiber(currentTime, fiber);
@@ -198,6 +205,7 @@ const classComponentUpdater = {
     enqueueUpdate(fiber, update);
     scheduleWork(fiber, expirationTime);
   },
+  // replaceState没用过，可能在一些工具中有用到？暂时不管
   enqueueReplaceState(inst, payload, callback) {
     const fiber = getInstance(inst);
     const currentTime = requestCurrentTime();
@@ -218,13 +226,14 @@ const classComponentUpdater = {
     enqueueUpdate(fiber, update);
     scheduleWork(fiber, expirationTime);
   },
+  // 调用forceUpdate就是调用Component.prototype.forceUpdate，里面再调用了this.Updater.enqueueForceUpdate(this, cb)（见ReactBaseClasses.js）
   enqueueForceUpdate(inst, callback) {
     const fiber = getInstance(inst);
     const currentTime = requestCurrentTime();
     const expirationTime = computeExpirationForFiber(currentTime, fiber);
 
     const update = createUpdate(expirationTime);
-    update.tag = ForceUpdate;
+    update.tag = ForceUpdate; // 手动指定update更新类型为ForceUpdate，上面的enqueueSetState不需要指定，因为createUpdate默认就是UpdateState的tag
 
     if (callback !== undefined && callback !== null) {
       if (__DEV__) {
