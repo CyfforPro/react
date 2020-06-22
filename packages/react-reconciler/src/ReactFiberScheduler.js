@@ -1592,30 +1592,56 @@ function computeUniqueAsyncExpiration(): ExpirationTime {
   return lastUniqueAsyncExpiration;
 }
 
+/**
+ * 该函数用于计算过期时间的，该值越大，优先级越高，返回值有如下几种数字类型
+ *   Sync: 最大，优先级最高
+ *   Batched: Sync-1，优先级第二
+ *   renderExpirationTime: 要么为0，要么是之前已经用该函数计算出来的expirationTime
+ *   computeInteractiveExpiration: 比renderExpirationTime小一点
+ *   computeAsyncExpiration: 比computeInteractiveExpiration小一点
+ */
 function computeExpirationForFiber(currentTime: ExpirationTime, fiber: Fiber) {
   const priorityLevel = getCurrentPriorityLevel();
 
   let expirationTime;
   if ((fiber.mode & ConcurrentMode) === NoContext) {
     // Outside of concurrent mode, updates are always synchronous.
+    /**
+     * fiber.mode主要有如下取值（ReactTypeOfMode.js），通过这种二进制，可以很方便的赋权和鉴权
+     * 赋权：fiber.mode |= 某种mode，甚至可以有多种mode共存
+     * 鉴权：fiber.mode & 某种mode，若结果为1，就是该mode，否则就不是
+     * mode：
+     *  NoContext = 0b000;
+     *  ConcurrentMode = 0b001;
+     *  StrictMode = 0b010;
+     *  ProfileMode = 0b100;
+     */
+    // 非concurrent mode的都是同步
     expirationTime = Sync;
   } else if (isWorking && !isCommitting) {
     // During render phase, updates expire during as the current render.
+    // working但还没commit，而nextRenderExpirationTime要么等于FiberRoot.nextExpirationTimeToWorkOn（renderRoot调用），要么等于0（resetStack调用）
     expirationTime = nextRenderExpirationTime;
   } else {
+    // 上面的分支可以认为是外部条件的expirationTime的赋值
+    // 下面这些就是完全按priorityLevel来进行分类处理的了
     switch (priorityLevel) {
       case ImmediatePriority:
+        // 立即更新，Sync
         expirationTime = Sync;
         break;
       case UserBlockingPriority:
+        // 交互型任务，如react事件系统中的那些事件回调
         expirationTime = computeInteractiveExpiration(currentTime);
         break;
       case NormalPriority:
         // This is a normal, concurrent update
+        // 普通优先级，Async
         expirationTime = computeAsyncExpiration(currentTime);
         break;
       case LowPriority:
       case IdlePriority:
+        // LowPriority和IdlePriority，就都挂起，Never为1啊
         expirationTime = Never;
         break;
       default:
@@ -1629,6 +1655,7 @@ function computeExpirationForFiber(currentTime: ExpirationTime, fiber: Fiber) {
     // If we're in the middle of rendering a tree, do not update at the same
     // expiration time that is already rendering.
     if (nextRoot !== null && expirationTime === nextRenderExpirationTime) {
+      // 在一颗树的更新过程中（expirationTime === nextRenderExpirationTime），并且该节点已经更新了（nextRoot !== null），就不要再更新一次了
       expirationTime -= 1;
     }
   }
@@ -1945,6 +1972,7 @@ const NESTED_UPDATE_LIMIT = 50;
 let nestedUpdateCount: number = 0;
 let lastCommittedRootDuringThisBatch: FiberRoot | null = null;
 
+// 计算当前expirationTime，并修改currentRendererTime
 function recomputeCurrentRendererTime() {
   const currentTimeMs = now() - originalStartTimeMs;
   currentRendererTime = msToExpirationTime(currentTimeMs);
@@ -2059,6 +2087,7 @@ function requestCurrentTime() {
 
   if (isRendering) {
     // We're already rendering. Return the most recently read time.
+    // 如果正在渲染，就返回上一次计算的currentSchedulerTime，这样能让那个update在随后得到更新
     return currentSchedulerTime;
   }
   // Check if there's pending work.
@@ -2069,6 +2098,7 @@ function requestCurrentTime() {
   ) {
     // If there's no pending work, or if the pending work is offscreen, we can
     // read the current time without risk of tearing.
+    // nextFlushedExpirationTime为NoWork或者Never，重新计算currentRendererTime，并返回currentSchedulerTime = currentRendererTime
     recomputeCurrentRendererTime();
     currentSchedulerTime = currentRendererTime;
     return currentSchedulerTime;

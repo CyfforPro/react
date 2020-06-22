@@ -204,7 +204,8 @@ export type Fiber = {|
   // eventually have a pair. There are cases when we can clean up pairs to save
   // memory if we need to.
   // 在Fiber树更新的过程中，每个Fiber都会有一个跟其对应的Fiber
-  // 我们称他为`current <==> workInProgress`
+  // 我们称他为`current <==> workInProgress`或`double buffering`
+  // current是已经渲染好的dom对应的fiber，workInProgress是正在执行更新的fiber，还能中断跟恢复
   // 在渲染完成之后他们会交换位置
   alternate: Fiber | null,
 
