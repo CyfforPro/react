@@ -253,8 +253,10 @@ if (__DEV__) {
 }
 
 // Used to ensure computeUniqueAsyncExpiration is monotonically decreasing.
+// 用于确保computeUniqueAsyncExpiration单调递增
 let lastUniqueAsyncExpiration: number = Sync - 1;
 
+// 用来标志是否当前有更新正在进行，不区分阶段，commitRoot和renderRoot开始都会设置为true，然后在他们各自阶段结束的时候都重置为false
 let isWorking: boolean = false;
 
 // The next work in progress fiber that we're currently working on.
@@ -268,6 +270,7 @@ let nextRenderDidError: boolean = false;
 // The next fiber with an effect that we're currently committing.
 let nextEffect: Fiber | null = null;
 
+// 用来标志是否处于commit阶段，commitRoot开头设置为true，结束之后设置为false
 let isCommitting: boolean = false;
 let rootWithPendingPassiveEffects: FiberRoot | null = null;
 let passiveEffectCallbackHandle: * = null;
@@ -374,6 +377,10 @@ if (__DEV__ && replayFailedUnitOfWorkWithInvokeGuardedCallback) {
 }
 
 function resetStack() {
+  // nextUnitOfWork是记录上一次异步任务即将进行到哪个fiber
+  // 若此时没有被更高优先级的任务打断，那么当浏览器交还控制权时，应该从这个fiber往下更新
+  // 但此时有更高优先级任务进来了（所以才会调用resetStack），这时还是要从FiberRoot开始更新
+  // 那么为了避免出现更新错乱的问题，需要将先前已经更新的祖先节点回退了
   if (nextUnitOfWork !== null) {
     let interruptedWork = nextUnitOfWork.return;
     while (interruptedWork !== null) {
@@ -387,6 +394,7 @@ function resetStack() {
     checkThatStackIsEmpty();
   }
 
+  // 重置一些全局变量
   nextRoot = null;
   nextRenderExpirationTime = NoWork;
   nextLatestAbsoluteTimeoutMs = -1;
@@ -1768,6 +1776,12 @@ function retryTimedOutBoundary(boundaryFiber: Fiber, thenable: Thenable) {
   }
 }
 
+/**
+ * 1. 找到fiber的RootFiber
+ * 2. fiber.expirationTime及fiber.alternate.expirationTime的更新操作
+ * @param {*} fiber
+ * @param {*} expirationTime
+ */
 function scheduleWorkToRoot(fiber: Fiber, expirationTime): FiberRoot | null {
   recordScheduleUpdate();
 
@@ -1780,26 +1794,37 @@ function scheduleWorkToRoot(fiber: Fiber, expirationTime): FiberRoot | null {
 
   // Update the source fiber's expiration time
   if (fiber.expirationTime < expirationTime) {
+    // fiber.expirationTime小于expirationTime，就更新fiber.expiration为传入的expirationTime——
+    // 1. fiber.expirationTime为NoWork（0），也就是这个fiber不需要更新，但你又传入了expirationTime，那么就认为需要修正
+    // 2. fiber.expirationTime有值，即需要更新——
+    //    2-1. 该值小于expirationTime，那么就以传入的为准，因为expirationTime越大，优先级越高
+    //    2-2. 该值大于expirationTime，即fiber.expirationTime优先级更高，就不要画蛇添足降低人家的优先级了
     fiber.expirationTime = expirationTime;
   }
   let alternate = fiber.alternate;
   if (alternate !== null && alternate.expirationTime < expirationTime) {
+    // 同上，也要更新alternate的expirationTime
     alternate.expirationTime = expirationTime;
   }
   // Walk the parent path to the root and update the child expiration time.
-  let node = fiber.return;
+  let node = fiber.return; // node就是fiber的父node
   let root = null;
   if (node === null && fiber.tag === HostRoot) {
+    // 当node为null且fiber.tag === HostRoot时，fiber就是RootFiber，那么fiber.stateNode就是FiberRoot了
+    // —— ReactDOM.render发生scheduleWorkToRoot调用时，fiber就是RootFiber
     root = fiber.stateNode;
   } else {
+    // 其余没那么好命能直接拿到FiberRoot的，就要循环遍历找到RootFiber再拿到FiberRoot了
     while (node !== null) {
       alternate = node.alternate;
       if (node.childExpirationTime < expirationTime) {
+        // 若父fiber的childExpirationTime优先级比expirationTime低，就更新它，理由同上
         node.childExpirationTime = expirationTime;
         if (
           alternate !== null &&
           alternate.childExpirationTime < expirationTime
         ) {
+          // 对父fiber.alternate.childExpirationTime处理，同上
           alternate.childExpirationTime = expirationTime;
         }
       } else if (
@@ -1809,13 +1834,16 @@ function scheduleWorkToRoot(fiber: Fiber, expirationTime): FiberRoot | null {
         alternate.childExpirationTime = expirationTime;
       }
       if (node.return === null && node.tag === HostRoot) {
+        // 找到RootFiber，拿到FiberRoot，就要及时break了
         root = node.stateNode;
         break;
       }
+      // 指针往上移
       node = node.return;
     }
   }
 
+  // 下面这些疑似跟react-devtool相关的，不看
   if (enableSchedulerTracing) {
     if (root !== null) {
       const interactions = __interactionsRef.current;
@@ -1875,9 +1903,18 @@ export function warnIfNotCurrentlyBatchingInDev(fiber: Fiber): void {
   }
 }
 
+/**
+ * 1. 找到fiber的FiberRoot根节点
+ * 2. 如果符合条件就resetStack
+ * 3. markPendingPriorityLevel
+ * 4. 如果符合条件就requestWork
+ * @param {*} fiber
+ * @param {*} expirationTime
+ */
 function scheduleWork(fiber: Fiber, expirationTime: ExpirationTime) {
   const root = scheduleWorkToRoot(fiber, expirationTime);
   if (root === null) {
+    // 连FiberRoot，有问题
     if (__DEV__) {
       switch (fiber.tag) {
         case ClassComponent:
@@ -1899,12 +1936,19 @@ function scheduleWork(fiber: Fiber, expirationTime: ExpirationTime) {
     nextRenderExpirationTime !== NoWork &&
     expirationTime > nextRenderExpirationTime
   ) {
+    // 不在更新中，但又有nextRenderExpirationTime，表明有异步任务被中断了（交给浏览器去执行更高优先级的事情了）
+    // 此时新的scheduleWork来了，并且该更新的expirationTime优先级比被打断的那个任务优先级高，就重置stack
+
     // This is an interruption. (Used for performance tracking.)
-    interruptedBy = fiber;
+    interruptedBy = fiber; // 用于devtool记录打断的原因的，不管
+
     resetStack();
   }
+  // 暂时跳过，后面再看
   markPendingPriorityLevel(root, expirationTime);
   if (
+    // 若没有在更新，或者isCommitting中（很奇怪，在这里的isCommitting应该一直是false才对），或者有多个FiberRoot
+
     // If we're in the render phase, we don't need to schedule this root
     // for an update, because we'll do it before we exit...
     !isWorking ||
@@ -1912,11 +1956,14 @@ function scheduleWork(fiber: Fiber, expirationTime: ExpirationTime) {
     // ...unless this is a different root than the one we're rendering.
     nextRoot !== root
   ) {
+    // 为何这里要另外拿一个rootExpirationTime——其实经过markPendingPriorityLevel后，root.expirationTime不一定是传入的expirationTime了
+    // 具体为何待markPendingPriorityLevel解读后再看
     const rootExpirationTime = root.expirationTime;
     requestWork(root, rootExpirationTime);
   }
   if (nestedUpdateCount > NESTED_UPDATE_LIMIT) {
     // Reset this back to zero so subsequent updates don't throw.
+    // 比如说在componentDidUpdate后又setState，就陷入了死循环，这里做了一个计数，若在某个更新中出现这类死循环异常就警告并重置计数
     nestedUpdateCount = 0;
     invariant(
       false,

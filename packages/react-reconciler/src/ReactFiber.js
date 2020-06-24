@@ -197,7 +197,7 @@ export type Fiber = {|
   expirationTime: ExpirationTime,
 
   // This is used to quickly determine if a subtree has no pending changes.
-  // 快速确定子树中是否有不在等待的变更
+  // 快速确定子树中是否有不在等待的变更——存储子树中优先级最高的expirationTime的，也就是最大的那个
   childExpirationTime: ExpirationTime,
 
   // This is a pooled version of a Fiber. Every fiber that gets updated will

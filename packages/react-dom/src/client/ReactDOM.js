@@ -386,7 +386,6 @@ ReactRoot.prototype.render = function(
   if (callback !== null) {
     work.then(callback);
   }
-  // 关键
   // 注意root是FiberRoot，而不是ReactRoot
   updateContainer(children, root, null, work._onCommit);
   return work;

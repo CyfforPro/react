@@ -170,6 +170,7 @@ export function updateContainerAtExpirationTime(
   callback: ?Function,
 ) {
   // TODO: If this is a nested container, this won't be the root.
+  // container是FiberRoot，current就是RootFiber
   const current = container.current;
 
   if (__DEV__) {
@@ -297,6 +298,7 @@ export function updateContainer(
   parentComponent: ?React$Component<any, any>,
   callback: ?Function,
 ): ExpirationTime {
+  // container是FiberRoot，那么current就是RootFiber
   const current = container.current;
   const currentTime = requestCurrentTime();
   const expirationTime = computeExpirationForFiber(currentTime, current);
