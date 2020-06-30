@@ -260,14 +260,20 @@ let lastUniqueAsyncExpiration: number = Sync - 1;
 let isWorking: boolean = false;
 
 // The next work in progress fiber that we're currently working on.
+// 用于记录render阶段Fiber树遍历过程中下一个需要执行的节点，在resetStack中被重置，它只会指向workInProgress
 let nextUnitOfWork: Fiber | null = null;
+// 用于记录下一个将要渲染的root节点
 let nextRoot: FiberRoot | null = null;
 // The time at which we're currently rendering work.
+// 用于记录下一个要渲染的任务的过期时间
 let nextRenderExpirationTime: ExpirationTime = NoWork;
+// 用来记录Suspense组件何时重新尝试渲染
 let nextLatestAbsoluteTimeoutMs: number = -1;
+// 用于记录当前render流程是否有错误产生
 let nextRenderDidError: boolean = false;
 
 // The next fiber with an effect that we're currently committing.
+// 用于commit阶段记录firstEffect -> lastEffect链遍历过程中的每一个Fiber
 let nextEffect: Fiber | null = null;
 
 // 用来标志是否处于commit阶段，commitRoot开头设置为true，结束之后设置为false
@@ -1914,7 +1920,7 @@ export function warnIfNotCurrentlyBatchingInDev(fiber: Fiber): void {
 function scheduleWork(fiber: Fiber, expirationTime: ExpirationTime) {
   const root = scheduleWorkToRoot(fiber, expirationTime);
   if (root === null) {
-    // 连FiberRoot，有问题
+    // 连FiberRoot都没有，警告，返回
     if (__DEV__) {
       switch (fiber.tag) {
         case ClassComponent:
@@ -1991,31 +1997,52 @@ function syncUpdates<A, B, C0, D, R>(
 // renderers. I'll do this in a follow-up.
 
 // Linked-list of roots
+// 存放所有任务的所有root单链表结构
+//   在findHighestPriorityRoot用来检索优先级最高的root
+//   在addRootToSchedule中会修改
 let firstScheduledRoot: FiberRoot | null = null;
 let lastScheduledRoot: FiberRoot | null = null;
 
+// 记录请求ReactScheduler的时候的过期时间，如果在一次调度期间有新的调度请求进来了，而且优先级更高，那么需要取消上一次请求，如果更低则无需再次请求调度。
+// callbackID是ReactScheduler返回的用于取消调度的 ID
 let callbackExpirationTime: ExpirationTime = NoWork;
 let callbackID: *;
+
+// performWorkOnRoot/commitPassiveEffects开始设置为true，结束的时候设置为false，表示进入渲染阶段，这是包含render和commit阶段的。
 let isRendering: boolean = false;
+
+// 用来标志下一个需要渲染的root和对应的expirtaionTime
 let nextFlushedRoot: FiberRoot | null = null;
 let nextFlushedExpirationTime: ExpirationTime = NoWork;
+
+// 用来存储interactiveUpdates产生的最小的expirationTime，
+// 在下一次外部指定的interactiveUpdates情况下会强制输出上一次的interactiveUpdates，
+// 因为interactiveUpdates主要是用户输入之类的操作，如果不及时输出会给用户造成断层感
 let lowestPriorityPendingInteractiveExpirationTime: ExpirationTime = NoWork;
+
+// Profile相关
 let hasUnhandledError: boolean = false;
 let unhandledError: mixed | null = null;
 
+// 存储更新产生的上下文的变量
 let isBatchingUpdates: boolean = false;
 let isUnbatchingUpdates: boolean = false;
 
 let completedBatches: Array<Batch> | null = null;
 
+// 固定值，js 加载完一开始计算的结果
 let originalStartTimeMs: number = now();
+
+// 计算距离originalStartTimeMs过去了多少个UNIT_SIZE ms的时间
 let currentRendererTime: ExpirationTime = msToExpirationTime(
   originalStartTimeMs,
 );
+// 会在isRendering === true的时候用作固定值返回，不然每次requestCurrentTime都会重新计算新的时间。
 let currentSchedulerTime: ExpirationTime = currentRendererTime;
 
 // Use these to prevent an infinite loop of nested updates
 const NESTED_UPDATE_LIMIT = 50;
+// 用来记录是否有嵌套得再生命周期方法中产生更新导致应用无限循环更新得计数器，用于提醒用户书写的不正确的代码。
 let nestedUpdateCount: number = 0;
 let lastCommittedRootDuringThisBatch: FiberRoot | null = null;
 
