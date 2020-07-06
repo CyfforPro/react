@@ -82,9 +82,10 @@ import {
   resetCurrentFiber,
   setCurrentFiber,
 } from './ReactCurrentFiber';
+// 这个ReactFiberHostConfig实际上是packages\react-dom\src\client\ReactDOMHostConfig.js
 import {
   now,
-  scheduleDeferredCallback,
+  scheduleDeferredCallback, // 这个其实就是Scheduler.js中的unstable_scheduleCallback
   cancelDeferredCallback,
   shouldYield,
   prepareForCommit,
@@ -2003,8 +2004,8 @@ function syncUpdates<A, B, C0, D, R>(
 let firstScheduledRoot: FiberRoot | null = null;
 let lastScheduledRoot: FiberRoot | null = null;
 
-// 记录请求ReactScheduler的时候的过期时间，如果在一次调度期间有新的调度请求进来了，而且优先级更高，那么需要取消上一次请求，如果更低则无需再次请求调度。
-// callbackID是ReactScheduler返回的用于取消调度的 ID
+// 记录请求Scheduler的时候的过期时间，如果在一次调度期间有新的调度请求进来了，而且优先级更高，那么需要取消上一次请求，如果更低则无需再次请求调度。
+// callbackID是Scheduler返回的用于取消调度的 ID
 let callbackExpirationTime: ExpirationTime = NoWork;
 let callbackID: *;
 
@@ -2052,31 +2053,43 @@ function recomputeCurrentRendererTime() {
   currentRendererTime = msToExpirationTime(currentTimeMs);
 }
 
+/**
+ * 开始异步任务调度相关工作
+ * @param {*} root
+ * @param {*} expirationTime
+ */
 function scheduleCallbackWithExpirationTime(
   root: FiberRoot,
   expirationTime: ExpirationTime,
 ) {
   if (callbackExpirationTime !== NoWork) {
     // A callback is already scheduled. Check its expiration time (timeout).
+    // 上一次异步任务没有完成
     if (expirationTime < callbackExpirationTime) {
       // Existing callback has sufficient timeout. Exit.
+      // 上一次异步任务的优先级（callbackExpirationTime）更高，此次异步任务（expirationTime）就不执行了
       return;
     } else {
       if (callbackID !== null) {
         // Existing callback has insufficient timeout. Cancel and schedule a
         // new one.
+        // 上一次的异步任务优先级较低，那么就应该取消上一次的异步任务的内容
         cancelDeferredCallback(callbackID);
       }
     }
     // The request callback timer is already running. Don't start a new one.
   } else {
+    // devtool相关，不管
     startRequestCallbackTimer();
   }
 
+  // 要执行此次的异步任务了，就把他的expirationTime记住，便于下次进行上述判断
   callbackExpirationTime = expirationTime;
   const currentMs = now() - originalStartTimeMs;
   const expirationTimeMs = expirationTimeToMs(expirationTime);
+  // 这个timeout就是该异步任务的期望执行时间ms
   const timeout = expirationTimeMs - currentMs;
+  // 同样存一下callbackID，进入异步调度
   callbackID = scheduleDeferredCallback(performAsyncWork, {timeout});
 }
 
@@ -2204,13 +2217,16 @@ function requestWork(root: FiberRoot, expirationTime: ExpirationTime) {
       nextFlushedExpirationTime = Sync;
       performWorkOnRoot(root, Sync, false);
     }
+    // isBatchingUpdates而又不是isUnbatchingUpdates，就直接return
     return;
   }
 
   // TODO: Get rid of Sync and use current time?
   if (expirationTime === Sync) {
+    // 同步任务，则调用performSyncWork
     performSyncWork();
   } else {
+    // 异步任务，则调用scheduleCallbackWithExpirationTime，即开始调度
     scheduleCallbackWithExpirationTime(root, expirationTime);
   }
 }
