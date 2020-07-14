@@ -80,6 +80,9 @@ function ensureHostCallbackIsScheduled() {
   requestHostCallback(flushWork, expirationTime);
 }
 
+/**
+ * 执行firstCallbackNode的cb，执行完成后，head指针后移
+ */
 function flushFirstCallback() {
   var flushedNode = firstCallbackNode;
 
@@ -96,6 +99,7 @@ function flushFirstCallback() {
     next.previous = lastCallbackNode;
   }
 
+  // 对flushedNode的next和previous置空，以免造成内存泄漏
   flushedNode.next = flushedNode.previous = null;
 
   // Now it's safe to call the callback.
@@ -116,6 +120,7 @@ function flushFirstCallback() {
 
   // A callback may return a continuation. The continuation should be scheduled
   // with the same priority and expiration as the just-finished callback.
+  // 一般callback()都没有返回值的，下面的都不用管
   if (typeof continuationCallback === 'function') {
     var continuationNode: CallbackNode = {
       callback: continuationCallback,
@@ -163,6 +168,7 @@ function flushFirstCallback() {
   }
 }
 
+// 从目前这个版本来看，firstCallbackNode.priorityLevel不可能为ImmediatePriority，那就先不管了
 function flushImmediateWork() {
   if (
     // Confirm we've exited the outer most event handler
@@ -214,7 +220,10 @@ function flushWork(didTimeout) {
         // This optimizes for as few performance.now calls as possible.
         var currentTime = getCurrentTime();
         if (firstCallbackNode.expirationTime <= currentTime) {
+          // 若firstCallbackNode的时间过期了，执行循环，直到firstCallbackNode为空或者不过期
+          // 每次循环中执行了flushFirstCallback，在flushFirstCallback会变换firstCallbackNode来让这个循环持续下去
           do {
+            // 真正执行任务链表的节点的callback了
             flushFirstCallback();
           } while (
             firstCallbackNode !== null &&
@@ -223,15 +232,19 @@ function flushWork(didTimeout) {
           );
           continue;
         }
+        // 上述代码执行结束后，要么firstCallbackNode为null，要么已经没有过期的任务了，那么就跳出循环
         break;
       }
     } else {
       // Keep flushing callbacks until we run out of time in the frame.
+      // didTimeout为false时执行，表示执行onmessage时，待调度的任务scheduledHostCallback还没有过期
       if (firstCallbackNode !== null) {
+        // 当浏览器有空时（!shouldYieldToHost）执行flushFirstCallback
         do {
           if (enableSchedulerDebugging && isSchedulerPaused) {
             break;
           }
+          // 注意这里只是在一次空闲中尽可能的执行flushFirstCallback，不空闲或者没有任务就循环结束了
           flushFirstCallback();
         } while (firstCallbackNode !== null && !shouldYieldToHost());
       }
@@ -241,6 +254,12 @@ function flushWork(didTimeout) {
     currentDidTimeout = previousDidTimeout;
     if (firstCallbackNode !== null) {
       // There's still work remaining. Request another callback.
+
+      // 调用ensureHostCallbackIsScheduled，重新来一遍任务调度，啥情况下会执行这个呢——
+      //  1. didTimeout时，执行了链表中的一些过期任务，尚有一些未过期任务待执行
+      //  2. !didTimeout，浏览器没有空闲了，但链表中有任务待执行
+      // 同时注意在这里调用这个，由于scheduledHostCallback==true
+      // 那么肯定会在ensureHostCallbackIsScheduled中调用cancelHostCallback来取消scheduledHostCallback
       ensureHostCallbackIsScheduled();
     } else {
       isHostCallbackScheduled = false;
@@ -633,7 +652,17 @@ if (globalValue && globalValue._schedMock) {
    */
   var scheduledHostCallback = null;
 
+  /**
+   * 是否有messageEvent在执行——
+   *  1. 正常的port2.postmessage前设为true
+   *  2. port1.onmessage和cancelHostCallback中设为false
+   */
   var isMessageEventScheduled = false;
+  /**
+   * 一个更新任务的过期时间
+   *  1. requestHostCallback或时会赋上
+   *  2. onmessage、cancelHostCallback就重置
+   */
   var timeoutTime = -1;
 
   /**
@@ -650,10 +679,15 @@ if (globalValue && globalValue._schedMock) {
   // We start out assuming that we run at 30fps but then the heuristic tracking
   // will adjust this value to a faster fps if we get more frequent animation
   // frames.
-  // 首先假设运行在30fps的设备上，并动态的根据raf的执行时间来调整设备帧率，最高支持120fps
+  // 首先假设运行在30fps的设备上，并动态的根据raf的执行时间来获取设备帧率，最高支持120fps
   var previousFrameTime = 33;
   var activeFrameTime = 33;
 
+  /**
+   * 是否应等待浏览器执行
+   *   true，等待，浏览器在忙着，别吵
+   *   false，不用等，浏览器空闲，可以执行一些任务
+   */
   shouldYieldToHost = function() {
     return frameDeadline <= getCurrentTime();
   };
@@ -664,6 +698,7 @@ if (globalValue && globalValue._schedMock) {
   channel.port1.onmessage = function(event) {
     isMessageEventScheduled = false;
 
+    // 先取出scheduledHostCallback和timeoutTime后再初始化
     var prevScheduledCallback = scheduledHostCallback;
     var prevTimeoutTime = timeoutTime;
     scheduledHostCallback = null;
@@ -675,18 +710,23 @@ if (globalValue && globalValue._schedMock) {
     if (frameDeadline - currentTime <= 0) {
       // There's no time left in this idle period. Check if the callback has
       // a timeout and whether it's been exceeded.
+      // 在执行onmessasge的task前耗费了很多渲染的时间等，导致frameDeadline都已经过了
       if (prevTimeoutTime !== -1 && prevTimeoutTime <= currentTime) {
         // Exceeded the timeout. Invoke the callback even though there's no
         // time left.
+        // 若任务的过期时间都小于当前时间了，需要立即执行
         didTimeout = true;
       } else {
         // No timeout.
+        // frameDeadline没有过期
         if (!isAnimationFrameScheduled) {
           // Schedule another animation callback so we retry later.
+          // 更像是重试，对于某些情况下调用了onmessage而又没有isAnimationFrameScheduled的处理
           isAnimationFrameScheduled = true;
           requestAnimationFrameWithTimeout(animationTick);
         }
         // Exit without invoking the callback.
+        // 没有过期需要执行scheduledHostCallback时恢复原来的callback和timeout
         scheduledHostCallback = prevScheduledCallback;
         timeoutTime = prevTimeoutTime;
         return;
@@ -694,8 +734,10 @@ if (globalValue && globalValue._schedMock) {
     }
 
     if (prevScheduledCallback !== null) {
+      // 需要执行prevScheduledCallback
       isFlushingHostCallback = true;
       try {
+        // 执行prevScheduledCallback，一般就是flushWork
         prevScheduledCallback(didTimeout);
       } finally {
         isFlushingHostCallback = false;
@@ -722,8 +764,9 @@ if (globalValue && globalValue._schedMock) {
       return;
     }
 
-    // 下面这一堆nextFrameTime、previousFrameTime、activeFrameTime的变换，说实话没看看懂
-    // 但看下了跟其他部分的关联，其他地方只会用到frameDeadline，故主要看看这个就好了
+    // 下面这一堆nextFrameTime、previousFrameTime、activeFrameTime的计算，归根结底就是想要拿到一个比较接近显示设备运行帧时间activeFrameTime
+    // 从而计算出frameDeadline，因为在这段时间内，react会进行调度，若计算的activeFrameTime不真实 ——
+    // 偏大，则会不流畅；偏小，则会有一定浪费，没有充分运用性能
 
     // nextFrameTime其实就是currentRafTime - prevRafTime
     var nextFrameTime = rafTime - frameDeadline + activeFrameTime;
@@ -751,7 +794,11 @@ if (globalValue && globalValue._schedMock) {
       previousFrameTime = nextFrameTime;
     }
     // frameDeadline为当前帧时间+一帧需要的时间，即预测下一帧发生的时间
+    // NOTE: 像这种计算frameDeadline的方式，为啥不用考虑减去浏览器渲染时间——
+    //   调用链为raf → animationTick → onmessage，而raf的cb即animitionTick是在下一次渲染前调用的，那么这时的onmessage的task就会排在渲染的task之后
+    //   也就是说 要执行onmessage时，已经过去了一段渲染的时间了，此时frameDeadline基本就是js可执行时间
     frameDeadline = rafTime + activeFrameTime;
+
     if (!isMessageEventScheduled) {
       isMessageEventScheduled = true;
       port.postMessage(undefined);
