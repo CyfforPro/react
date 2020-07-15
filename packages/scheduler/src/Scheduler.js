@@ -488,6 +488,9 @@ function unstable_getCurrentPriorityLevel() {
   return currentPriorityLevel;
 }
 
+/**
+ * 是否应暂停react代码，交还控制权给渲染引擎或js引擎
+ */
 function unstable_shouldYield() {
   return (
     !currentDidTimeout &&

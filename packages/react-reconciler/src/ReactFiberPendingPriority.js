@@ -236,6 +236,11 @@ export function findEarliestOutstandingPriorityLevel(
   return earliestExpirationTime;
 }
 
+/**
+ * 若root.expirationTime过期了，就设置root.nextExpirationTimeToWorkOn = currentTime
+ * @param {*} root
+ * @param {*} currentTime
+ */
 export function didExpireAtExpirationTime(
   root: FiberRoot,
   currentTime: ExpirationTime,

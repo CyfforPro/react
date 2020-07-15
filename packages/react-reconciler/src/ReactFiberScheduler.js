@@ -85,9 +85,9 @@ import {
 // 这个ReactFiberHostConfig实际上是packages\react-dom\src\client\ReactDOMHostConfig.js
 import {
   now,
-  scheduleDeferredCallback, // 这个其实就是Scheduler.js中的unstable_scheduleCallback
+  scheduleDeferredCallback, // 就是Scheduler.js中的unstable_scheduleCallback
   cancelDeferredCallback,
-  shouldYield,
+  shouldYield, // 就是Scheduler.js中的unstable_shouldYield
   prepareForCommit,
   resetAfterCommit,
   scheduleTimeout,
@@ -1159,6 +1159,11 @@ function completeUnitOfWork(workInProgress: Fiber): Fiber | null {
   return null;
 }
 
+/**
+ * 对workInProgress的Fiber进行beginWork，并返回其next
+ * 当next为null时，表示到FiberRoot了，调用completeUnitOfWork
+ * @param {*} workInProgress
+ */
 function performUnitOfWork(workInProgress: Fiber): Fiber | null {
   // The current, flushed, state of this fiber is the alternate.
   // Ideally nothing should rely on this, but relying on it here
@@ -1181,6 +1186,7 @@ function performUnitOfWork(workInProgress: Fiber): Fiber | null {
 
   let next;
   if (enableProfilerTimer) {
+    // devtools相关，不看
     if (workInProgress.mode & ProfileMode) {
       startProfilerTimer(workInProgress);
     }
@@ -1193,6 +1199,7 @@ function performUnitOfWork(workInProgress: Fiber): Fiber | null {
       stopProfilerTimerIfRunningAndRecordDelta(workInProgress, true);
     }
   } else {
+    // beginWork
     next = beginWork(current, workInProgress, nextRenderExpirationTime);
     workInProgress.memoizedProps = workInProgress.pendingProps;
   }
@@ -1221,6 +1228,10 @@ function performUnitOfWork(workInProgress: Fiber): Fiber | null {
   return next;
 }
 
+/**
+ * 若nextUnitOfWork !== null（即还没到FiberRoot节点），循环执行performUnitOfWork，可以中断的话还加了个浏览器是否有空的判断
+ * @param {*} isYieldy 是否可中断
+ */
 function workLoop(isYieldy) {
   if (!isYieldy) {
     // Flush work without yielding
@@ -1235,6 +1246,14 @@ function workLoop(isYieldy) {
   }
 }
 
+/**
+ * 对应render阶段（将更新同步到fiber tree的每个节点的alternate上），可以被打断
+ *   1. 检查是否是真·中断任务以resetStack
+ *   2. 循环执行workLoop，并处理workLoop错误
+ *   3. 收尾工作，如设置一些全局变量、onSuspend等
+ * @param {*} root
+ * @param {*} isYieldy
+ */
 function renderRoot(root: FiberRoot, isYieldy: boolean): void {
   invariant(
     !isWorking,
@@ -1252,11 +1271,20 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
 
   // Check if we're starting from a fresh stack, or if we're resuming from
   // previously yielded work.
+  /**
+   * 先检查是一个全新的work还是被中断的work
+   *   这里的中断指的是更高优先级的requestIdleCallback，而不是那种时间片不够导致任务暂停的中断
+   *   试想一下，若上一个任务是因为时间片不足而暂停的，那么nextUnitOfWork是不为空的
+   *   且root.nextExpirationTimeToWorkOn这类全局变量性质的变量肯定也没变，下面这个条件永远不会满足
+   *   反而只有当更高优先级的requestIdleCallback插入了才会导致上述变量的变化而能触发这个if
+   *   那么理所当然的对于这种被更高优先级任务打断的任务，应该重置一些全局的变量以免出现两个任务的错乱更新
+   */
   if (
     expirationTime !== nextRenderExpirationTime ||
     root !== nextRoot ||
     nextUnitOfWork === null
   ) {
+    // 若是中断的work，重置stack，并设置nextRoot等信息重头开始
     // Reset the stack and start working from the root.
     resetStack();
     nextRoot = root;
@@ -1324,6 +1352,7 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
 
   startWorkLoopTimer(nextUnitOfWork);
 
+  // 循环workLoop直到抛出异常
   do {
     try {
       workLoop(isYieldy);
@@ -1341,6 +1370,7 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
 
       if (nextUnitOfWork === null) {
         // This is a fatal error.
+        // 若nextUnitOfWork不存在，表示这是一个react无法预期的错误，就直接调用onUncaughtError了
         didFatal = true;
         onUncaughtError(thrownValue);
       } else {
@@ -1357,6 +1387,7 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
         }
 
         if (__DEV__ && replayFailedUnitOfWorkWithInvokeGuardedCallback) {
+          // 开发环境中尝试replayUnitOfWork
           if (mayReplay) {
             const failedUnitOfWork: Fiber = nextUnitOfWork;
             replayUnitOfWork(failedUnitOfWork, thrownValue, isYieldy);
@@ -1382,9 +1413,11 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
           // Because we're not sure, treat this as a fatal error. We could track
           // which phase it fails in, but doesn't seem worth it. At least
           // for now.
+          // 没有nextUnitOfWork.return，也是未预期错误
           didFatal = true;
           onUncaughtError(thrownValue);
         } else {
+          // 其他的就是react预期错误了，使用throwException
           throwException(
             root,
             returnFiber,
@@ -1392,6 +1425,7 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
             thrownValue,
             nextRenderExpirationTime,
           );
+          // 调用completeUnitOfWork，已经报错，就没必要再渲染其子节点了
           nextUnitOfWork = completeUnitOfWork(sourceFiber);
           continue;
         }
@@ -1413,9 +1447,13 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
 
   // Yield back to main thread.
   if (didFatal) {
+    // 未预期的错误，onFatal后就return了
     const didCompleteRoot = false;
+
+    // 下面两个是调试相关的，不用管
     stopWorkLoopTimer(interruptedBy, didCompleteRoot);
     interruptedBy = null;
+
     // There was a fatal error.
     if (__DEV__) {
       resetStackAfterFatalErrorInDev();
@@ -1433,6 +1471,7 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
     // in the current frame. Yield back to the renderer. Unless we're
     // interrupted by a higher priority update, we'll continue later from where
     // we left off.
+    // 能运行到这里且nextUnitOfWork不为空，表明任务未执行完，只是yield了，就调用onYield
     const didCompleteRoot = false;
     stopWorkLoopTimer(interruptedBy, didCompleteRoot);
     interruptedBy = null;
@@ -1441,6 +1480,7 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
   }
 
   // We completed the whole tree.
+  // 既不是未知错误，也不是挂起的任务，那就是完成整颗树的render了
   const didCompleteRoot = true;
   stopWorkLoopTimer(interruptedBy, didCompleteRoot);
   const rootWorkInProgress = root.current.alternate;
@@ -1456,6 +1496,9 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
   nextRoot = null;
   interruptedBy = null;
 
+  // TODO: 下面这些onSuspend的内容看不太懂，待研究
+
+  // 是否有错误发生
   if (nextRenderDidError) {
     // There was an error
     if (hasLowerPriorityWork(root, expirationTime)) {
@@ -1536,6 +1579,7 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
   }
 
   // Ready to commit.
+  // 可以到commit了
   onComplete(root, rootWorkInProgress, expirationTime);
 }
 
@@ -1998,9 +2042,11 @@ function syncUpdates<A, B, C0, D, R>(
 // renderers. I'll do this in a follow-up.
 
 // Linked-list of roots
-// 存放所有任务的所有root单链表结构
-//   在findHighestPriorityRoot用来检索优先级最高的root
-//   在addRootToSchedule中会修改
+/**
+ * 存放所有任务的所有root单链表结构
+     在findHighestPriorityRoot用来检索优先级最高的root
+     在addRootToSchedule中会修改
+ */
 let firstScheduledRoot: FiberRoot | null = null;
 let lastScheduledRoot: FiberRoot | null = null;
 
@@ -2009,7 +2055,9 @@ let lastScheduledRoot: FiberRoot | null = null;
 let callbackExpirationTime: ExpirationTime = NoWork;
 let callbackID: *;
 
-// performWorkOnRoot/commitPassiveEffects开始设置为true，结束的时候设置为false，表示进入渲染阶段，这是包含render和commit阶段的。
+/**
+ * performWorkOnRoot/commitPassiveEffects开始设置为true，结束的时候设置为false，表示进入渲染阶段，这是包含render和commit阶段的。
+ */
 let isRendering: boolean = false;
 
 // 用来标志下一个需要渲染的root和对应的expirtaionTime
@@ -2034,7 +2082,9 @@ let completedBatches: Array<Batch> | null = null;
 // 固定值，js 加载完一开始计算的结果
 let originalStartTimeMs: number = now();
 
-// 计算距离originalStartTimeMs过去了多少个UNIT_SIZE ms的时间
+/**
+ * 计算距离originalStartTimeMs过去了多少个UNIT_SIZE ms的时间
+ */
 let currentRendererTime: ExpirationTime = msToExpirationTime(
   originalStartTimeMs,
 );
@@ -2047,7 +2097,9 @@ const NESTED_UPDATE_LIMIT = 50;
 let nestedUpdateCount: number = 0;
 let lastCommittedRootDuringThisBatch: FiberRoot | null = null;
 
-// 计算当前expirationTime，并修改currentRendererTime
+/**
+ * 计算当前expirationTime，并修改currentRendererTime
+ */
 function recomputeCurrentRendererTime() {
   const currentTimeMs = now() - originalStartTimeMs;
   currentRendererTime = msToExpirationTime(currentTimeMs);
@@ -2200,6 +2252,11 @@ function requestCurrentTime() {
 
 // requestWork is called by the scheduler whenever a root receives an update.
 // It's up to the renderer to call renderRoot at some point in the future.
+/**
+ * FiberRoot收到更新后会调用这个，最终render + commit，从而让真实dom得到更新
+ * @param {*} root
+ * @param {*} expirationTime
+ */
 function requestWork(root: FiberRoot, expirationTime: ExpirationTime) {
   addRootToSchedule(root, expirationTime);
   if (isRendering) {
@@ -2255,12 +2312,17 @@ function addRootToSchedule(root: FiberRoot, expirationTime: ExpirationTime) {
   }
 }
 
+/**
+ * 寻找firstScheduledRoot链表中优先级最高的节点，然后赋值nextFlushedRoot和nextFlushedExpirationTime
+ * 同时在遍历中将root.expirationTime = NoWork（不会过期？）的节点移除
+ */
 function findHighestPriorityRoot() {
   let highestPriorityWork = NoWork;
   let highestPriorityRoot = null;
   if (lastScheduledRoot !== null) {
     let previousScheduledRoot = lastScheduledRoot;
     let root = firstScheduledRoot;
+    // 循环遍历找最高优先级的节点，同时移除不会过期的任务
     while (root !== null) {
       const remainingExpirationTime = root.expirationTime;
       if (remainingExpirationTime === NoWork) {
@@ -2323,6 +2385,7 @@ function findHighestPriorityRoot() {
 // TODO: This wrapper exists because many of the older tests (the ones that use
 // flushDeferredPri) rely on the number of times `shouldYield` is called. We
 // should get rid of it.
+// 对shouldYield做了一层包装，用didYield记录了一些场景下的shouldYield来避免多次调用shouldYield，可以认为这里的判断和shouldYield效果等同
 let didYield: boolean = false;
 function shouldYieldToRenderer() {
   if (didYield) {
@@ -2346,6 +2409,7 @@ function performAsyncWork() {
       if (firstScheduledRoot !== null) {
         recomputeCurrentRendererTime();
         let root: FiberRoot = firstScheduledRoot;
+        // 遍历整个firstScheduledRoot链表，对于过期的节点设置其nextExpirationTimeToWorkOn = currentRendererTime
         do {
           didExpireAtExpirationTime(root, currentRendererTime);
           // The root schedule is circular, so this is never null.
@@ -2363,12 +2427,18 @@ function performSyncWork() {
   performWork(Sync, false);
 }
 
+/**
+ * 对每一个FiberRoot进行render、commit（performWorkOnRoot）
+ * @param {*} minExpirationTime
+ * @param {*} isYieldy 是否异步
+ */
 function performWork(minExpirationTime: ExpirationTime, isYieldy: boolean) {
   // Keep working on roots until there's no more work, or until there's a higher
   // priority event.
   findHighestPriorityRoot();
 
   if (isYieldy) {
+    // 异步的，在performAsyncWork中调用
     recomputeCurrentRendererTime();
     currentSchedulerTime = currentRendererTime;
 
@@ -2381,7 +2451,9 @@ function performWork(minExpirationTime: ExpirationTime, isYieldy: boolean) {
     while (
       nextFlushedRoot !== null &&
       nextFlushedExpirationTime !== NoWork &&
+      // 这里的minExpirationTime由于只要performAsyncWork调用，传入的是NoWork = 0，这个条件基本不用看了
       minExpirationTime <= nextFlushedExpirationTime &&
+      // 不需要暂停或者root已经过期了，注意取反和小括号及and条件啊
       !(didYield && currentRendererTime > nextFlushedExpirationTime)
     ) {
       performWorkOnRoot(
@@ -2394,11 +2466,13 @@ function performWork(minExpirationTime: ExpirationTime, isYieldy: boolean) {
       currentSchedulerTime = currentRendererTime;
     }
   } else {
+    // 同步的，在performSyncWork、flushInteractiveUpdates、interactiveUpdates中调用
     while (
       nextFlushedRoot !== null &&
       nextFlushedExpirationTime !== NoWork &&
       minExpirationTime <= nextFlushedExpirationTime
     ) {
+      // 基本是root.expirationTime = Sync的才会走到这里来，即这里只会对同步的节点执行performWorkOnRoot
       performWorkOnRoot(nextFlushedRoot, nextFlushedExpirationTime, false);
       findHighestPriorityRoot();
     }
@@ -2468,6 +2542,12 @@ function finishRendering() {
   }
 }
 
+/**
+ * 对一个FiberRoot执行render + commit
+ * @param {*} root 执行的任务节点
+ * @param {*} expirationTime 执行的任务节点的过期时间
+ * @param {*} isYieldy 是否需要中断，绝大多数调用都是false，只在performwork中的isYieldy为true时才是true
+ */
 function performWorkOnRoot(
   root: FiberRoot,
   expirationTime: ExpirationTime,
@@ -2488,20 +2568,24 @@ function performWorkOnRoot(
     // may want to perform some work without yielding, but also without
     // requiring the root to complete (by triggering placeholders).
 
+    // 不需要中断
     let finishedWork = root.finishedWork;
     if (finishedWork !== null) {
       // This root is already complete. We can commit it.
+      // 该节点已经完成，可以commit了
       completeRoot(root, finishedWork, expirationTime);
     } else {
       root.finishedWork = null;
       // If this root previously suspended, clear its existing timeout, since
       // we're about to try rendering again.
+      // timeoutHandle supense相关的内容，先不看
       const timeoutHandle = root.timeoutHandle;
       if (timeoutHandle !== noTimeout) {
         root.timeoutHandle = noTimeout;
         // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
         cancelTimeout(timeoutHandle);
       }
+      // 进入render阶段
       renderRoot(root, isYieldy);
       finishedWork = root.finishedWork;
       if (finishedWork !== null) {
@@ -2511,6 +2595,7 @@ function performWorkOnRoot(
     }
   } else {
     // Flush async work.
+    // 需要中断
     let finishedWork = root.finishedWork;
     if (finishedWork !== null) {
       // This root is already complete. We can commit it.
@@ -2527,15 +2612,23 @@ function performWorkOnRoot(
       }
       renderRoot(root, isYieldy);
       finishedWork = root.finishedWork;
+
+      // 上面的所有逻辑和不需要中断是一样的，下面就开始不同了
+
       if (finishedWork !== null) {
         // We've completed the root. Check the if we should yield one more time
         // before committing.
+
+        // 由于在renderRoot时传入isYieldy = true可以中断，那么执行renderRoot后，可能因为没有充足对的时间而导致
+        // root.finishWork有可能还不是null
         if (!shouldYieldToRenderer()) {
           // Still time left. Commit the root.
+          // 还有时间，那么其实可以commit已经完成的部分
           completeRoot(root, finishedWork, expirationTime);
         } else {
           // There's no time left. Mark this root as complete. We'll come
           // back and commit it later.
+          // 没有时间了，假装无事发生，待后面有相关调用再进行
           root.finishedWork = finishedWork;
         }
       }
@@ -2545,6 +2638,12 @@ function performWorkOnRoot(
   isRendering = false;
 }
 
+/**
+ * 对应commit阶段，不可以被打断
+ * @param {*} root
+ * @param {*} finishedWork
+ * @param {*} expirationTime
+ */
 function completeRoot(
   root: FiberRoot,
   finishedWork: Fiber,

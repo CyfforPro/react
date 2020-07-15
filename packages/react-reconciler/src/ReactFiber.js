@@ -387,6 +387,13 @@ export function resolveLazyComponentTag(Component: Function): WorkTag {
 }
 
 // This is used to create an alternate fiber to do work on.
+/**
+ * 在current上处理workInProgress Fiber的alternate属性
+ * 同时各自的alternate属性分别指向对方，便于commit完后位置互换
+ * @param {*} current
+ * @param {*} pendingProps
+ * @param {*} expirationTime
+ */
 export function createWorkInProgress(
   current: Fiber,
   pendingProps: any,
@@ -399,6 +406,7 @@ export function createWorkInProgress(
     // node that we're free to reuse. This is lazily created to avoid allocating
     // extra objects for things that are never updated. It also allow us to
     // reclaim the extra memory if needed.
+    // 没有workInProgress就新建
     workInProgress = createFiber(
       current.tag,
       pendingProps,
