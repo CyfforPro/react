@@ -257,7 +257,10 @@ if (__DEV__) {
 // 用于确保computeUniqueAsyncExpiration单调递增
 let lastUniqueAsyncExpiration: number = Sync - 1;
 
-// 用来标志是否当前有更新正在进行，不区分阶段，commitRoot和renderRoot开始都会设置为true，然后在他们各自阶段结束的时候都重置为false
+/**
+ * 用来标志是否当前有更新正在进行，不区分阶段，commitRoot和renderRoot开始都会设置为true，然后在他们各自阶段结束的时候都重置为false
+ */
+
 let isWorking: boolean = false;
 
 // The next work in progress fiber that we're currently working on.
@@ -277,7 +280,9 @@ let nextRenderDidError: boolean = false;
 // 用于commit阶段记录firstEffect -> lastEffect链遍历过程中的每一个Fiber
 let nextEffect: Fiber | null = null;
 
-// 用来标志是否处于commit阶段，commitRoot开头设置为true，结束之后设置为false
+/**
+ * 用来标志是否处于commit阶段，commitRoot开头设置为true，结束之后设置为false
+ */
 let isCommitting: boolean = false;
 let rootWithPendingPassiveEffects: FiberRoot | null = null;
 let passiveEffectCallbackHandle: * = null;
@@ -2050,9 +2055,13 @@ function syncUpdates<A, B, C0, D, R>(
 let firstScheduledRoot: FiberRoot | null = null;
 let lastScheduledRoot: FiberRoot | null = null;
 
-// 记录请求Scheduler的时候的过期时间，如果在一次调度期间有新的调度请求进来了，而且优先级更高，那么需要取消上一次请求，如果更低则无需再次请求调度。
-// callbackID是Scheduler返回的用于取消调度的 ID
+/**
+ * 记录请求Scheduler的时候的过期时间，如果在一次调度期间有新的调度请求进来了，而且优先级更高，那么需要取消上一次请求，如果更低则无需再次请求调度。
+ */
 let callbackExpirationTime: ExpirationTime = NoWork;
+/**
+ * callbackID是Scheduler返回的用于取消调度的 ID
+ */
 let callbackID: *;
 
 /**
@@ -2084,11 +2093,19 @@ let originalStartTimeMs: number = now();
 
 /**
  * 计算距离originalStartTimeMs过去了多少个UNIT_SIZE ms的时间
+ * 每次需要该值时，基本都会先调用recomputeCurrentRendererTime重新计算
  */
 let currentRendererTime: ExpirationTime = msToExpirationTime(
   originalStartTimeMs,
 );
-// 会在isRendering === true的时候用作固定值返回，不然每次requestCurrentTime都会重新计算新的时间。
+/**
+ * 会在isRendering === true的时候用作固定值返回，不然每次requestCurrentTime都会重新计算新的时间。
+   设置——
+     1. 初始化，= currentRendererTime
+     2. onTimeOut，= currentRendererTime
+     3. requestCurrentTime，当没有任务时，= currentRendererTime
+     4. performWork，对于异步任务，每次performWorkOnRoot前跟后都会 = currentRendererTime
+ */
 let currentSchedulerTime: ExpirationTime = currentRendererTime;
 
 // Use these to prevent an infinite loop of nested updates
@@ -2204,6 +2221,12 @@ function onCommit(root, expirationTime) {
   root.finishedWork = null;
 }
 
+/**
+ * 通过统一的一个入口获取currentTime，这个currentTime有如下特征
+ *   在一次渲染中产生的更新需要使用相同的currentTime
+ *   一次批处理的更新应使用相同的currentTime
+ *   挂起任务用于记录时应使用相同的currentTime
+ */
 function requestCurrentTime() {
   // requestCurrentTime is called by the scheduler to compute an expiration
   // time.
@@ -2226,7 +2249,7 @@ function requestCurrentTime() {
 
   if (isRendering) {
     // We're already rendering. Return the most recently read time.
-    // 如果正在渲染，就返回上一次计算的currentSchedulerTime，这样能让那个update在随后得到更新
+    // 如果正在渲染，就返回上一次计算的currentSchedulerTime
     return currentSchedulerTime;
   }
   // Check if there's pending work.
@@ -2253,7 +2276,8 @@ function requestCurrentTime() {
 // requestWork is called by the scheduler whenever a root receives an update.
 // It's up to the renderer to call renderRoot at some point in the future.
 /**
- * FiberRoot收到更新后会调用这个，最终render + commit，从而让真实dom得到更新
+ * FiberRoot收到更新后会调用这个（包括但不限于scheduleWork、commitPassiveEffects等）
+ * 最终render + commit，从而让真实dom得到更新
  * @param {*} root
  * @param {*} expirationTime
  */
@@ -2288,6 +2312,16 @@ function requestWork(root: FiberRoot, expirationTime: ExpirationTime) {
   }
 }
 
+/**
+ * 主要用于修改FiberRoot单链表的
+ *  1. 若root还没被调度（root.nextScheduledRoot === null）
+ *    1.1 若无lastScheduledRoot，则firstScheduledRoot、lastScheduledRoot、root.nextScheduledRoot都是root
+ *    1.2                       否则lastScheduledRoot = root，root.nextScheduledRoot = firstScheduledRoot
+ *  2. 否则root已经在调度中
+ *    若传入的expirationTime是否大于root.expirationTime，表明其优先级提升了，应该更新root.expirationTime为传入的expirationTime
+ * @param {*} root
+ * @param {*} expirationTime
+ */
 function addRootToSchedule(root: FiberRoot, expirationTime: ExpirationTime) {
   // Add the root to the schedule.
   // Check if this root is already part of the schedule.

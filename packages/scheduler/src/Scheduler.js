@@ -357,6 +357,8 @@ function unstable_scheduleCallback(callback, deprecated_options) {
   var startTime =
     currentEventStartTime !== -1 ? currentEventStartTime : getCurrentTime();
 
+  // NOTE: 这个expirationTime稍后一般是now() + option.timeout的一个毫秒数了
+  // 因此，其实是越大的优先级越低，注意区分Fiber中的expirationTime
   var expirationTime;
   if (
     typeof deprecated_options === 'object' &&
