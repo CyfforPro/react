@@ -1357,7 +1357,7 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
 
   startWorkLoopTimer(nextUnitOfWork);
 
-  // 循环workLoop直到抛出异常
+  // 执行workloop，通过抛出可处理的错误（throwException）来“循环（continue）”，若无错误，或错误无法处理（onUncaughtError），就会跑到外面的break，结束循环
   do {
     try {
       workLoop(isYieldy);
@@ -1453,9 +1453,9 @@ function renderRoot(root: FiberRoot, isYieldy: boolean): void {
   // Yield back to main thread.
   if (didFatal) {
     // 未预期的错误，onFatal后就return了
-    const didCompleteRoot = false;
 
-    // 下面两个是调试相关的，不用管
+    // 下面三行是调试相关的，不用管
+    const didCompleteRoot = false;
     stopWorkLoopTimer(interruptedBy, didCompleteRoot);
     interruptedBy = null;
 
